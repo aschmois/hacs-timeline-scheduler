@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Timeline Card — dev</title>
+<style>body{background:#0d1017;margin:0;padding:40px;font-family:system-ui}.wrap{max-width:680px;margin:auto}
+:root{--card-background-color:#151a24;--primary-text-color:#e9edf5;--secondary-text-color:#9aa4ba;--primary-color:#f4b45e;--divider-color:#28303f;--secondary-background-color:#1b2130;--text-primary-color:#241704;--code-font-family:ui-monospace,monospace}
+ha-card{display:block;background:var(--card-background-color);border-radius:14px;overflow:hidden}</style></head>
+<body><div class="wrap"><timeline-scheduler-card id="c"></timeline-scheduler-card></div>
+<script type="module" src="../dist/timeline-scheduler-card.js"></script>
+<script>
+const SCH={id:'bed',name:'Bedroom Bed',enabled:true,target:{entity_id:'climate.bed'},apply:'climate_temperature',default:{value:null},
+ transitions:[{id:'t1',when:{type:'time',at:'20:00'},value:80,weekdays:['mon','tue','wed','thu','fri','sat','sun']},
+ {id:'t2',when:{type:'time',at:'02:00'},value:83,weekdays:['mon','tue','wed','thu','fri','sat','sun']},
+ {id:'t3',when:{type:'anchor',entity:'input_datetime.wakeup_time',offset:'-00:30'},value:95,weekdays:['mon','tue','wed','thu','fri']},
+ {id:'t4',when:{type:'anchor',entity:'input_datetime.wakeup_time',offset:'+00:30'},value:'off',weekdays:['mon','tue','wed','thu','fri']}]};
+const hass={connection:{sendMessagePromise:async m=>m.type==='timeline_scheduler/get'?SCH:m.type==='timeline_scheduler/list'?{schedules:[SCH]}:m.type==='timeline_scheduler/save'?m.schedule:{}},states:{'input_datetime.wakeup_time':{state:'06:30:00'}}};
+const c=document.getElementById('c');c.setConfig({schedule_id:'bed'});c.hass=hass;
+</script></body></html>
