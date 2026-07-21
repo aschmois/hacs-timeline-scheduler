@@ -1,0 +1,21 @@
+{
+  "name": "timeline-scheduler-card",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "rollup -c && node -e \"import('node:fs').then(fs=>{fs.mkdirSync('../custom_components/timeline_scheduler/frontend',{recursive:true});fs.copyFileSync('dist/timeline-scheduler-card.js','../custom_components/timeline_scheduler/frontend/timeline-scheduler-card.js')})\"",
+    "test": "vitest run"
+  },
+  "dependencies": { "lit": "^3.2.0" },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-typescript": "^12.1.0",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rollup": "^4.24.0",
+    "tslib": "^2.8.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "jsdom": "^25.0.0"
+  }
+}
