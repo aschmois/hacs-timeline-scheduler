@@ -29,6 +29,10 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _upsert(call: ServiceCall) -> None:
         data = hass.data[DOMAIN]
         schedule = Schedule.from_dict(dict(call.data))
+        # `managed` is server-owned; preserve it when editing an existing schedule.
+        existing = data["store"].get(schedule.id)
+        if existing is not None:
+            schedule.managed = existing.managed
         await data["store"].async_upsert(schedule)
         await data["manager"].async_setup_schedule(schedule)
 

@@ -1,6 +1,7 @@
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.timeline_scheduler.const import DOMAIN
+from custom_components.timeline_scheduler.models import Schedule
 
 from .helpers import setup_integration
 
@@ -96,6 +97,18 @@ async def test_ws_delete(hass, hass_ws_client):
     resp = await client.receive_json()
     assert resp["success"] and resp["result"]["removed"] is True
     assert hass.data[DOMAIN]["store"].get("bed") is None
+
+
+async def test_ws_save_preserves_managed(hass, hass_ws_client):
+    """A card save (no `managed` in payload) must not clear a managed schedule."""
+    await _setup(hass)
+    store = hass.data[DOMAIN]["store"]
+    await store.async_upsert(Schedule.from_dict({**SAVE, "managed": True}))
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save", "schedule": SAVE})
+    resp = await client.receive_json()
+    assert resp["success"]
+    assert store.get("office").managed is True
 
 
 async def test_ws_save_malformed(hass, hass_ws_client):

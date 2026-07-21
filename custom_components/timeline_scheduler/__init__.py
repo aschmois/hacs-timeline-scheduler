@@ -7,10 +7,10 @@ import os
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import DOMAIN, SCHEDULE_SUBENTRY_TYPE
 from .manager import TimelineManager
 from .services import async_register_services
 from .store import ScheduleStore
@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CARD_URL = "/timeline_scheduler/timeline-scheduler-card.js"
 CARD_PATH = os.path.join(os.path.dirname(__file__), "frontend", "timeline-scheduler-card.js")
+PLATFORMS = [Platform.SWITCH, Platform.SENSOR]
 
 # Marks the process-wide, one-time registration (services, websocket API, card).
 # Survives config-entry reloads so we never double-register the static path.
@@ -34,7 +35,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN] = {"store": store, "manager": manager}
 
     await _async_register_platform(hass)
+    await _async_reconcile_managed(entry, store)
     await manager.async_start()
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Reload when a schedule subentry is added / edited / removed so the
+    # per-schedule switch and sensor are (re)created or torn down.
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     async def _handle_stop(_event) -> None:
         await manager.async_stop()
@@ -46,16 +53,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Tear down the runtime.
+    """Tear down the runtime and per-schedule platforms.
 
     Services / websocket commands / the card static path are process-wide and
-    stay registered (the static path cannot be unregistered); only the store
-    and manager are per-entry runtime, so those are what we stop here.
+    stay registered (the static path cannot be unregistered).
     """
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     data = hass.data.pop(DOMAIN, None)
     if data is not None:
         await data["manager"].async_stop()
-    return True
+    return unloaded
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its subentries change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def _async_reconcile_managed(entry: ConfigEntry, store: ScheduleStore) -> None:
+    """Remove managed schedules whose owning subentry no longer exists."""
+    managed_ids = {
+        s.data["schedule_id"]
+        for s in entry.subentries.values()
+        if s.subentry_type == SCHEDULE_SUBENTRY_TYPE
+    }
+    for sch in list(store.list()):
+        if sch.managed and sch.id not in managed_ids:
+            await store.async_remove(sch.id)
 
 
 async def _async_register_platform(hass: HomeAssistant) -> None:

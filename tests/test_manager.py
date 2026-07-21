@@ -40,6 +40,21 @@ async def test_applies_current_value_on_refresh(hass):
     await mgr.async_teardown("bed")
 
 
+async def test_refresh_records_state_and_teardown_clears_it(hass):
+    async_mock_service(hass, "climate", "set_temperature")
+    mgr = await _make(hass, _bed())
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_refresh("bed")
+        await hass.async_block_till_done()
+    st = mgr.state["bed"]
+    assert st["current"] == 80
+    assert st["active_id"] == "a"
+    assert st["next_target"] == 70
+    assert st["next_dt"].hour == 22
+    await mgr.async_teardown("bed")
+    assert "bed" not in mgr.state
+
+
 async def test_anchor_change_triggers_reapply(hass):
     calls = async_mock_service(hass, "climate", "set_temperature")
     sch = Schedule.from_dict({

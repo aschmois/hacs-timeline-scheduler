@@ -40,6 +40,16 @@ def test_empty_weekdays_preserved():
     assert sch.to_dict()["transitions"][0]["weekdays"] == []
 
 
+def test_managed_flag_round_trips_and_defaults_off():
+    managed = Schedule.from_dict({**RAW, "managed": True})
+    assert managed.managed is True
+    assert managed.to_dict()["managed"] is True
+
+    plain = Schedule.from_dict(RAW)
+    assert plain.managed is False
+    assert "managed" not in plain.to_dict()  # omitted when False
+
+
 def test_when_todict_fidelity_and_unknown_type_raises():
     assert When("time", at="20:00").to_dict() == {"type": "time", "at": "20:00"}
     assert When("anchor", entity="input_datetime.wakeup_time", offset="-00:30").to_dict() == {

@@ -1,9 +1,12 @@
 """Config flow and config-entry lifecycle tests."""
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    SOURCE_USER,
+)
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.timeline_scheduler.const import DOMAIN
+from custom_components.timeline_scheduler.const import DOMAIN, SCHEDULE_SUBENTRY_TYPE
 
 from .helpers import setup_integration
 
@@ -41,3 +44,68 @@ async def test_setup_entry_runtime_then_unload(hass):
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert DOMAIN not in hass.data
+
+
+async def _add_schedule(hass, entry, name="Bed", target="climate.bed",
+                        apply="climate_temperature", enabled=True):
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SCHEDULE_SUBENTRY_TYPE), context={"source": SOURCE_USER}
+    )
+    assert result["type"] == FlowResultType.FORM
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"name": name, "target": target, "apply": apply, "enabled": enabled},
+    )
+    await hass.async_block_till_done()
+    return result
+
+
+async def test_add_schedule_subentry_creates_managed_schedule(hass):
+    entry = await setup_integration(hass)
+    result = await _add_schedule(hass, entry)
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    store = hass.data[DOMAIN]["store"]
+    sch = store.get("bed")
+    assert sch is not None
+    assert sch.managed is True
+    assert sch.name == "Bed"
+    assert sch.target == {"entity_id": "climate.bed"}
+    assert sch.apply == "climate_temperature"
+    assert sch.transitions == []
+
+
+async def test_add_schedule_slug_collision_gets_unique_id(hass):
+    entry = await setup_integration(hass)
+    await _add_schedule(hass, entry, name="Bed")
+    await _add_schedule(hass, entry, name="Bed")
+    store = hass.data[DOMAIN]["store"]
+    assert store.get("bed") is not None
+    assert store.get("bed_2") is not None
+
+
+async def test_reconfigure_subentry_updates_schedule(hass):
+    entry = await setup_integration(hass)
+    await _add_schedule(hass, entry, name="Bed")
+    subentry_id = next(iter(entry.subentries))
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SCHEDULE_SUBENTRY_TYPE),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": subentry_id},
+    )
+    assert result["type"] == FlowResultType.FORM
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"name": "Main Bed", "target": "climate.other",
+         "apply": "climate_temperature", "enabled": False},
+    )
+    await hass.async_block_till_done()
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+
+    store = hass.data[DOMAIN]["store"]
+    sch = store.get("bed")
+    assert sch.name == "Main Bed"
+    assert sch.target == {"entity_id": "climate.other"}
+    assert sch.enabled is False
+    assert sch.managed is True  # preserved across reconfigure

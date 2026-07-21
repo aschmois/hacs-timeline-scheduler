@@ -5,6 +5,7 @@ import logging
 from datetime import time
 
 from homeassistant.core import HassJob, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_time,
     async_track_state_change_event,
@@ -13,6 +14,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .actions import build_service_call
+from .const import schedule_updated_signal
 from .resolver import active_and_next
 from .store import ScheduleStore
 
@@ -26,6 +28,12 @@ class TimelineManager:
         self._watchers: dict[str, list] = {}   # sid -> cancel callbacks (anchors)
         self._timers: dict[str, callable] = {}  # sid -> cancel callback (next timer)
         self._global: list = []
+        # sid -> {current, next_dt, next_target, active_id}; read by the switch/
+        # sensor entities and refreshed by async_refresh / cleared by teardown.
+        self.state: dict[str, dict] = {}
+
+    def _dispatch(self, sid: str) -> None:
+        async_dispatcher_send(self.hass, schedule_updated_signal(sid))
 
     def _anchor_lookup(self, entity_id: str) -> time | None:
         st = self.hass.states.get(entity_id)
@@ -89,6 +97,13 @@ class TimelineManager:
             value = active.transition.value
         else:
             value = schedule.default.get("value") if schedule.default else None
+        self.state[sid] = {
+            "current": value,
+            "next_dt": nxt.when_dt if nxt is not None else None,
+            "next_target": nxt.transition.value if nxt is not None else None,
+            "active_id": active.transition.id if active is not None else None,
+        }
+        self._dispatch(sid)
         if value is not None:
             domain, service, data = build_service_call(schedule.apply, value, schedule.target)
             await self.hass.services.async_call(domain, service, data, blocking=False)
@@ -117,3 +132,6 @@ class TimelineManager:
         self._cancel_timer(sid)
         for cancel in self._watchers.pop(sid, []):
             cancel()
+        # Clear live state (e.g. schedule disabled/removed) so entities reflect it.
+        if self.state.pop(sid, None) is not None:
+            self._dispatch(sid)

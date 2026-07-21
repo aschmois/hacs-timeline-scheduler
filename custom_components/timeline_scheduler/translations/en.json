@@ -9,5 +9,50 @@
     "abort": {
       "single_instance_allowed": "Timeline Scheduler is already set up; only one instance is supported."
     }
+  },
+  "config_subentries": {
+    "schedule": {
+      "title": "Schedule",
+      "entry_type": "Schedule",
+      "initiate_flow": {
+        "user": "Add schedule",
+        "reconfigure": "Edit schedule"
+      },
+      "step": {
+        "user": {
+          "title": "Add schedule",
+          "description": "Create a schedule. You'll lay out its timeline of setpoints afterward in the Timeline Scheduler card.",
+          "data": {
+            "name": "Name",
+            "target": "Target entity",
+            "apply": "Apply as",
+            "enabled": "Enabled"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit schedule",
+          "description": "Change this schedule's name, target, or how its values are applied. Edit the timeline itself in the card.",
+          "data": {
+            "name": "Name",
+            "target": "Target entity",
+            "apply": "Apply as",
+            "enabled": "Enabled"
+          }
+        }
+      },
+      "abort": {
+        "reconfigure_successful": "Schedule updated."
+      }
+    }
+  },
+  "selector": {
+    "apply": {
+      "options": {
+        "switch_onoff": "Switch on/off",
+        "climate_temperature": "Climate temperature",
+        "climate_hvac_mode": "Climate HVAC mode",
+        "number_set": "Number value"
+      }
+    }
   }
 }
