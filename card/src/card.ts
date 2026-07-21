@@ -24,6 +24,7 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _day: Weekday = todayKey();
   @state() protected _sel: string | null = null;
   @state() protected _dirty = false;
+  @state() protected _error?: string;
   private _loadedFor?: string;
 
   public setConfig(config: CardConfig): void {
@@ -44,10 +45,12 @@ export class TimelineSchedulerCard extends LitElement {
 
   protected async _load(): Promise<void> {
     if (!this.hass || !this._config?.schedule_id) return;
-    const sch = await getSchedule(this.hass, this._config.schedule_id);
-    this._schedule = sch;
-    this._perDay = expandByDay(sch);
-    this._dirty = false;
+    try {
+      const sch = await getSchedule(this.hass, this._config.schedule_id);
+      this._schedule = sch; this._perDay = expandByDay(sch); this._dirty = false; this._error = undefined;
+    } catch (err) {
+      this._error = `Couldn't load schedule "${this._config.schedule_id}": ${err instanceof Error ? err.message : String(err)}`;
+    }
     this.requestUpdate();
   }
 
@@ -108,7 +111,7 @@ export class TimelineSchedulerCard extends LitElement {
         if (e.kind === 'time') e.atMin = min;
         else if (alarm !== null) e.offsetMin = Math.max(-300, Math.min(300, Math.round((min - alarm) / 5) * 5));
         if (e.value !== 'off') e.value = Math.max(55, Math.min(110, Math.round(tempOfY(p.y))));
-        this._dirty = true; this.requestUpdate(); this._renderTimeline(svg as SVGSVGElement);
+        this._dirty = true; this.requestUpdate();
       };
       const up = () => { grp.releasePointerCapture(ev.pointerId); svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); this.requestUpdate(); };
       svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up);
@@ -130,8 +133,13 @@ export class TimelineSchedulerCard extends LitElement {
   protected async _save(): Promise<void> {
     if (!this.hass || !this._schedule || !this._perDay) return;
     const next: Schedule = { ...this._schedule, transitions: collapseToTransitions(this._perDay) };
-    await saveSchedule(this.hass, next);
-    this._schedule = next; this._dirty = false; this.requestUpdate();
+    try {
+      await saveSchedule(this.hass, next);
+      this._schedule = next; this._dirty = false; this._error = undefined;
+    } catch (err) {
+      this._error = `Save failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    this.requestUpdate();
   }
 
   static async getConfigElement() { await import('./editor'); return document.createElement('timeline-scheduler-card-editor'); }
@@ -169,6 +177,7 @@ export class TimelineSchedulerCard extends LitElement {
           </div>
           <div class="now"><div class="cur">${st.cur}</div><div class="nxt">${st.next}</div></div>
         </div>
+        ${this._error ? html`<div class="err">${this._error}</div>` : ''}
         <div class="days">
           ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; }}>${DAY_LABEL[d]}</button>`)}
         </div>
@@ -213,7 +222,7 @@ export class TimelineSchedulerCard extends LitElement {
     .day { flex: 1; padding: 7px 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
       background: var(--secondary-background-color); color: var(--secondary-text-color);
       border: 1px solid var(--divider-color); }
-    .day[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
+    .day[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color); }
     svg.tl { display: block; width: 100%; height: auto; touch-action: none; }
     .grid { stroke: var(--divider-color); stroke-width: 1; opacity: .5; }
     .axis { fill: var(--secondary-text-color); font-size: 10px; font-family: var(--code-font-family, monospace); }
@@ -232,13 +241,14 @@ export class TimelineSchedulerCard extends LitElement {
     .kind { font-size: 11px; color: var(--secondary-text-color); border: 1px solid var(--divider-color); padding: 1px 7px; border-radius: 999px; }
     .kind.anchor { color: var(--primary-color); border-color: var(--primary-color); }
     .temp { margin-left: auto; font-weight: 600; color: var(--primary-text-color); font-family: var(--code-font-family, monospace); }
-    .rm{margin-left:6px;border:none;background:transparent;color:var(--secondary-text-color);cursor:pointer;font-size:15px;border-radius:6px;width:24px;height:24px}.rm:hover{color:var(--error-color,#e06)}
+    .rm{margin-left:6px;border:none;background:transparent;color:var(--secondary-text-color);cursor:pointer;font-size:15px;border-radius:6px;width:24px;height:24px}.rm:hover{color:var(--error-color)}
     :host { --tsc-off: #6b7280; }
     .foot { display: flex; gap: 10px; padding: 10px 16px 16px; border-top: 1px solid var(--divider-color); }
     button.act { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 9px 13px; cursor: pointer;
       border: 1px solid var(--divider-color); background: var(--secondary-background-color); color: var(--primary-text-color); }
-    button.save { margin-left: auto; background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
+    button.save { margin-left: auto; background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color); }
     button[disabled] { opacity: .5; cursor: default; }
+    .err{color:var(--error-color);font-size:12px;padding:2px 16px 8px}
   `;
 }
 function todayKey(): Weekday { return WEEKDAYS[(new Date().getDay() + 6) % 7]; }
