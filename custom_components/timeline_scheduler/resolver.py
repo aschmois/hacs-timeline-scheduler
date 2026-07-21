@@ -81,13 +81,14 @@ def resolve_day(schedule, day, tzinfo, anchor_lookup):
     Returns items {"time": iso, "value": value, "transition_id": id}. Transitions not
     applicable to `day`'s weekday, or whose anchor is unresolvable, are omitted.
     """
-    items = []
+    resolved = []
     for tr in schedule.transitions:
         if _weekday_key(day) not in tr.weekdays:
             continue
         dt = _resolve_one(tr, day, tzinfo, anchor_lookup)
         if dt is None:
             continue
-        items.append({"time": dt.isoformat(), "value": tr.value, "transition_id": tr.id})
-    items.sort(key=lambda i: i["time"])
-    return items
+        resolved.append((dt, tr))
+    resolved.sort(key=lambda pair: pair[0])
+    return [{"time": dt.isoformat(), "value": tr.value, "transition_id": tr.id}
+            for dt, tr in resolved]
