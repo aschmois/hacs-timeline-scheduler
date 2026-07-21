@@ -62,7 +62,11 @@ def ws_preview(hass: HomeAssistant, connection, msg) -> None:
 @websocket_api.async_response
 async def ws_save(hass: HomeAssistant, connection, msg) -> None:
     data = hass.data[DOMAIN]
-    schedule = Schedule.from_dict(msg["schedule"])
+    try:
+        schedule = Schedule.from_dict(msg["schedule"])
+    except (KeyError, ValueError, vol.Invalid) as err:
+        connection.send_error(msg["id"], "invalid_format", f"invalid schedule: {err}")
+        return
     await data["store"].async_upsert(schedule)
     await data["manager"].async_setup_schedule(schedule)
     connection.send_result(msg["id"], schedule.to_dict())

@@ -80,6 +80,8 @@ def resolve_day(schedule, day, tzinfo, anchor_lookup):
 
     Returns items {"time": iso, "value": value, "transition_id": id}. Transitions not
     applicable to `day`'s weekday, or whose anchor is unresolvable, are omitted.
+    Anchor times are expanded from the anchor entity's current state, so previewing a
+    past/future date still uses today's anchor value (not a historical value).
     """
     resolved = []
     for tr in schedule.transitions:

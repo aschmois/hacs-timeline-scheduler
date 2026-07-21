@@ -96,3 +96,12 @@ async def test_ws_delete(hass, hass_ws_client):
     resp = await client.receive_json()
     assert resp["success"] and resp["result"]["removed"] is True
     assert hass.data[DOMAIN]["store"].get("bed") is None
+
+
+async def test_ws_save_malformed(hass, hass_ws_client):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save",
+                            "schedule": {"id": "broken"}})  # missing target/apply/transitions
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "invalid_format"
