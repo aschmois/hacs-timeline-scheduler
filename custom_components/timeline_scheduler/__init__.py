@@ -9,6 +9,7 @@ from .const import DOMAIN
 from .manager import TimelineManager
 from .services import async_register_services
 from .store import ScheduleStore
+from .websocket_api import async_register_ws
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -17,6 +18,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     manager = TimelineManager(hass, store)
     hass.data[DOMAIN] = {"store": store, "manager": manager}
     async_register_services(hass)
+    async_register_ws(hass)
     await manager.async_start()
 
     async def _handle_stop(_event) -> None:
