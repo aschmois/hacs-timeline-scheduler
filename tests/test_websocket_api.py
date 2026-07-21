@@ -68,3 +68,31 @@ async def test_ws_preview_bad_date(hass, hass_ws_client):
                             "id_": "bed", "date": "not-a-date"})
     resp = await client.receive_json()
     assert not resp["success"] and resp["error"]["code"] == "invalid_format"
+
+
+SAVE = {"id": "office", "name": "Office", "target": {"entity_id": "climate.office"},
+        "apply": "climate_temperature",
+        "transitions": [{"id": "t1", "when": {"type": "time", "at": "09:00"}, "value": 68}]}
+
+
+async def test_ws_save_then_list(hass, hass_ws_client):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save", "schedule": SAVE})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["id"] == "office"
+    assert hass.data[DOMAIN]["store"].get("office") is not None
+
+    await client.send_json({"id": 2, "type": "timeline_scheduler/list"})
+    resp = await client.receive_json()
+    assert "office" in [s["id"] for s in resp["result"]["schedules"]]
+
+
+async def test_ws_delete(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/delete", "id_": "bed"})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["removed"] is True
+    assert hass.data[DOMAIN]["store"].get("bed") is None

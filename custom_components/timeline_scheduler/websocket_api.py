@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .models import Schedule
 from .resolver import resolve_day
 
 
@@ -53,8 +54,37 @@ def ws_preview(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], {"date": msg["date"], "occurrences": occ})
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "timeline_scheduler/save",
+    vol.Required("schedule"): dict,
+})
+@websocket_api.async_response
+async def ws_save(hass: HomeAssistant, connection, msg) -> None:
+    data = hass.data[DOMAIN]
+    schedule = Schedule.from_dict(msg["schedule"])
+    await data["store"].async_upsert(schedule)
+    await data["manager"].async_setup_schedule(schedule)
+    connection.send_result(msg["id"], schedule.to_dict())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "timeline_scheduler/delete",
+    vol.Required("id_"): str,
+})
+@websocket_api.async_response
+async def ws_delete(hass: HomeAssistant, connection, msg) -> None:
+    data = hass.data[DOMAIN]
+    await data["manager"].async_teardown(msg["id_"])
+    await data["store"].async_remove(msg["id_"])
+    connection.send_result(msg["id"], {"id": msg["id_"], "removed": True})
+
+
 @callback
 def async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list)
     websocket_api.async_register_command(hass, ws_get)
     websocket_api.async_register_command(hass, ws_preview)
+    websocket_api.async_register_command(hass, ws_save)
+    websocket_api.async_register_command(hass, ws_delete)
