@@ -56,3 +56,28 @@ async def test_anchor_change_triggers_reapply(hass):
     # Cancel armed watchers/timers so HA test harness does not report lingering
     # resources (reference omitted this; minimal fix added here).
     await mgr.async_teardown("bed")
+
+
+async def test_disabled_schedule_arms_nothing(hass):
+    calls = async_mock_service(hass, "climate", "set_temperature")
+    sch = _bed()
+    sch.enabled = False
+    mgr = await _make(hass, sch)
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_setup_schedule(sch)
+        await hass.async_block_till_done()
+    assert calls == []
+    assert mgr._timers == {}
+    assert mgr._watchers == {}
+
+
+async def test_async_start_does_not_accumulate_global_trackers(hass):
+    async_mock_service(hass, "climate", "set_temperature")
+    mgr = await _make(hass, _bed())
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_start()
+        await mgr.async_start()
+        await hass.async_block_till_done()
+    assert len(mgr._global) == 1
+    await mgr.async_stop()
+    await hass.async_block_till_done()

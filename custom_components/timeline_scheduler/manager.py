@@ -39,12 +39,23 @@ class TimelineManager:
             return dt_util.as_local(as_dt).time()
         return None
 
+    def _cancel_global(self) -> None:
+        for cancel in self._global:
+            cancel()
+        self._global = []
+
     async def async_start(self) -> None:
+        self._cancel_global()
         self._global.append(
             async_track_time_change(self.hass, self._handle_midnight,
                                     hour=0, minute=0, second=5))
         for sch in self.store.list():
             await self.async_setup_schedule(sch)
+
+    async def async_stop(self) -> None:
+        self._cancel_global()
+        for sid in set(self._timers) | set(self._watchers):
+            await self.async_teardown(sid)
 
     @callback
     def _handle_midnight(self, _now) -> None:
