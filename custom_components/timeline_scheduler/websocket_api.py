@@ -44,7 +44,11 @@ def ws_preview(hass: HomeAssistant, connection, msg) -> None:
     if sch is None:
         connection.send_error(msg["id"], "not_found", f"No schedule '{msg['id_']}'")
         return
-    day = date_cls.fromisoformat(msg["date"])
+    try:
+        day = date_cls.fromisoformat(msg["date"])
+    except ValueError:
+        connection.send_error(msg["id"], "invalid_format", "date must be YYYY-MM-DD")
+        return
     occ = resolve_day(sch, day, dt_util.DEFAULT_TIME_ZONE, data["manager"]._anchor_lookup)
     connection.send_result(msg["id"], {"date": msg["date"], "occurrences": occ})
 

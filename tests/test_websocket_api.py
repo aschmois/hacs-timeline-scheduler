@@ -49,3 +49,22 @@ async def test_ws_preview(hass, hass_ws_client):
     occ = resp["result"]["occurrences"]
     assert len(occ) == 1 and occ[0]["value"] == 80
     assert occ[0]["time"].startswith("2026-01-05T20:00:00")
+
+
+async def test_ws_preview_missing(hass, hass_ws_client):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/preview",
+                            "id_": "nope", "date": "2026-01-05"})
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "not_found"
+
+
+async def test_ws_preview_bad_date(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/preview",
+                            "id_": "bed", "date": "not-a-date"})
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "invalid_format"
