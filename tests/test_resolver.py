@@ -68,3 +68,14 @@ def test_missing_anchor_is_skipped():
     now = datetime(2026, 1, 5, 8, 0, tzinfo=TZ)
     active, nxt = active_and_next(sch, now, _no_anchor)  # anchor unknown
     assert active is None and nxt is None
+
+
+def test_weekday_only_no_carryover_next_day():
+    # Sat/Sun only; now is Monday 01:00 — must NOT carry Sunday's value into Monday
+    sch = _sched([
+        {"id": "wk", "when": {"type": "time", "at": "22:00"}, "value": 5,
+         "weekdays": ["sat", "sun"]},
+    ])
+    now = datetime(2026, 1, 5, 1, 0, tzinfo=TZ)  # Monday 01:00
+    active, nxt = active_and_next(sch, now, _no_anchor)
+    assert active is None

@@ -34,7 +34,9 @@ def _resolve_one(transition: Transition, day, tzinfo, anchor_lookup) -> datetime
 
 def _build_occurrences(schedule: Schedule, now: datetime, anchor_lookup):
     tz = now.tzinfo
+    today = now.date()
     occ: list[ResolvedTransition] = []
+    today_has_occ = False
     # Look at yesterday/today/tomorrow so held values and next changes are found
     # regardless of midnight crossings and negative anchor offsets.
     for delta in (-1, 0, 1):
@@ -45,21 +47,10 @@ def _build_occurrences(schedule: Schedule, now: datetime, anchor_lookup):
             dt = _resolve_one(tr, day, tz, anchor_lookup)
             if dt is not None:
                 occ.append(ResolvedTransition(dt, tr))
+                if day == today:
+                    today_has_occ = True
     occ.sort(key=lambda r: r.when_dt)
-    return occ
-
-
-def _has_today_occurrences(schedule: Schedule, now: datetime, anchor_lookup) -> bool:
-    """Return True if any transition resolves to a datetime on today's date."""
-    tz = now.tzinfo
-    today = now.date()
-    for tr in schedule.transitions:
-        if _weekday_key(today) not in tr.weekdays:
-            continue
-        dt = _resolve_one(tr, today, tz, anchor_lookup)
-        if dt is not None:
-            return True
-    return False
+    return occ, today_has_occ
 
 
 def active_and_next(schedule: Schedule, now: datetime, anchor_lookup):
@@ -69,8 +60,7 @@ def active_and_next(schedule: Schedule, now: datetime, anchor_lookup):
     (has at least one resolvable transition for today's weekday). This prevents a
     weekend-only transition from incorrectly appearing active on a weekday.
     """
-    occ = _build_occurrences(schedule, now, anchor_lookup)
-    today_has_occ = _has_today_occurrences(schedule, now, anchor_lookup)
+    occ, today_has_occ = _build_occurrences(schedule, now, anchor_lookup)
     active: ResolvedTransition | None = None
     nxt: ResolvedTransition | None = None
     for r in occ:
