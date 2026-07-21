@@ -1,0 +1,50 @@
+upsert_schedule:
+  name: Create or update schedule
+  description: Create or replace a timeline schedule by id.
+  fields:
+    id:
+      required: true
+      example: bed
+      selector:
+        text:
+    name:
+      example: Bed
+      selector:
+        text:
+    target:
+      required: true
+      example: '{"entity_id": "climate.bed"}'
+      selector:
+        object:
+    apply:
+      required: true
+      example: climate_temperature
+      selector:
+        select:
+          options: [switch_onoff, climate_temperature, climate_hvac_mode, number_set]
+    transitions:
+      required: true
+      selector:
+        object:
+    enabled:
+      selector:
+        boolean:
+    default:
+      selector:
+        object:
+remove_schedule:
+  name: Remove schedule
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+apply_now:
+  name: Apply schedule now
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+reload:
+  name: Reload schedules from storage

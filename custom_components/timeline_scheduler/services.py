@@ -1,0 +1,49 @@
+"""Service registration for Timeline Scheduler."""
+from __future__ import annotations
+
+import voluptuous as vol
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
+
+from .const import DOMAIN
+from .models import Schedule
+
+UPSERT_SCHEMA = vol.Schema({
+    vol.Required("id"): cv.string,
+    vol.Optional("name"): cv.string,
+    vol.Required("target"): dict,
+    vol.Required("apply"): cv.string,
+    vol.Required("transitions"): list,
+    vol.Optional("enabled", default=True): cv.boolean,
+    vol.Optional("default"): vol.Any(dict, None),
+}, extra=vol.ALLOW_EXTRA)
+
+ID_SCHEMA = vol.Schema({vol.Required("id"): cv.string})
+
+
+def async_register_services(hass: HomeAssistant) -> None:
+    store = hass.data[DOMAIN]["store"]
+    manager = hass.data[DOMAIN]["manager"]
+
+    async def _upsert(call: ServiceCall) -> None:
+        schedule = Schedule.from_dict(dict(call.data))
+        await store.async_upsert(schedule)
+        await manager.async_setup_schedule(schedule)
+
+    async def _remove(call: ServiceCall) -> None:
+        sid = call.data["id"]
+        await manager.async_teardown(sid)
+        await store.async_remove(sid)
+
+    async def _apply_now(call: ServiceCall) -> None:
+        await manager.async_refresh(call.data["id"])
+
+    async def _reload(_call: ServiceCall) -> None:
+        await manager.async_stop()
+        await store.async_load()
+        await manager.async_start()
+
+    hass.services.async_register(DOMAIN, "upsert_schedule", _upsert, schema=UPSERT_SCHEMA)
+    hass.services.async_register(DOMAIN, "remove_schedule", _remove, schema=ID_SCHEMA)
+    hass.services.async_register(DOMAIN, "apply_now", _apply_now, schema=ID_SCHEMA)
+    hass.services.async_register(DOMAIN, "reload", _reload)
