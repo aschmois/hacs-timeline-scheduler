@@ -17,6 +17,7 @@
 - **Public repo — no personal info:** all tests/examples use generic IDs (`climate.bed`, `input_datetime.wakeup_time`); never real names, emails, or real device IDs. Commit as `aschmois <aschmois@users.noreply.github.com>`.
 - Out of scope (do not build): point-event/feeder schedules; `sensor` entities; WebSocket API; the Lovelace card.
 - License: MIT, copyright holder `aschmois`.
+- **Test execution (host has no HA/py3.13+):** run every test through the prebuilt container — `docker exec -w /app tl-test python -m pytest ...` (repo is mounted at `/app`, so host edits are live). The container already has pytest 9.0.3, pytest-asyncio 1.4.0, `pytest-homeassistant-custom-component` 0.13.346, and freezegun — **do NOT create a venv or pip-install anything.** `asyncio_mode=auto` comes from `pyproject.toml`.
 
 ---
 
@@ -53,11 +54,9 @@ Tests: `tests/` mirrors the module layout.
 
 - [ ] **Step 1: Create test dependencies and pytest config**
 
-`requirements-test.txt`:
+`requirements-test.txt` (pytest + pytest-asyncio are pinned transitively by phcc — do not pin them yourself):
 ```
-pytest>=8
-pytest-asyncio>=0.23
-pytest-homeassistant-custom-component
+pytest-homeassistant-custom-component==0.13.346
 freezegun>=1.5
 ```
 
