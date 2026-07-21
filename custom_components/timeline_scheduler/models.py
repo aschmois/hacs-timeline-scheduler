@@ -35,7 +35,7 @@ class Transition:
     @classmethod
     def from_dict(cls, d: dict) -> "Transition":
         return cls(id=d["id"], when=When.from_dict(d["when"]),
-                   value=d["value"], weekdays=d.get("weekdays") or list(WEEKDAYS))
+                   value=d["value"], weekdays=d["weekdays"] if "weekdays" in d else list(WEEKDAYS))
 
     def to_dict(self) -> dict:
         d: dict = {"id": self.id, "when": self.when.to_dict(), "value": self.value}

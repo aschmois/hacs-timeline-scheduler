@@ -28,3 +28,11 @@ def test_transition_defaults_to_all_weekdays():
     sch = Schedule.from_dict({**RAW, "transitions": [
         {"id": "t1", "when": {"type": "time", "at": "06:00"}, "value": 1}]})
     assert sch.transitions[0].weekdays == WEEKDAYS
+
+
+def test_empty_weekdays_preserved():
+    raw = {**RAW, "transitions": [
+        {"id": "t1", "when": {"type": "time", "at": "06:00"}, "value": 1, "weekdays": []}]}
+    sch = Schedule.from_dict(raw)
+    assert sch.transitions[0].weekdays == []
+    assert sch.to_dict()["transitions"][0]["weekdays"] == []
