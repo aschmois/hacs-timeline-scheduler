@@ -85,9 +85,12 @@ class TimelineManager:
             return
         now = dt_util.now()
         active, nxt = active_and_next(schedule, now, self._anchor_lookup)
-        if active is not None and active.transition.value is not None:
-            domain, service, data = build_service_call(
-                schedule.apply, active.transition.value, schedule.target)
+        if active is not None:
+            value = active.transition.value
+        else:
+            value = schedule.default.get("value") if schedule.default else None
+        if value is not None:
+            domain, service, data = build_service_call(schedule.apply, value, schedule.target)
             await self.hass.services.async_call(domain, service, data, blocking=False)
         self._cancel_timer(sid)
         if nxt is not None:

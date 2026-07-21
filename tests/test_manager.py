@@ -81,3 +81,21 @@ async def test_async_start_does_not_accumulate_global_trackers(hass):
     assert len(mgr._global) == 1
     await mgr.async_stop()
     await hass.async_block_till_done()
+
+
+async def test_default_applied_when_no_active_transition(hass):
+    calls = async_mock_service(hass, "climate", "set_temperature")
+    sch = Schedule.from_dict({
+        "id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
+        "apply": "climate_temperature",
+        "default": {"value": 70},
+        "transitions": [
+            {"id": "wk", "when": {"type": "time", "at": "08:00"}, "value": 90,
+             "weekdays": ["sat", "sun"]}]})
+    mgr = await _make(hass, sch)
+    with freeze_time(datetime(2026, 1, 5, 12, 0, tzinfo=TZ)):  # Monday: off-day → active None → default
+        await mgr.async_refresh("bed")
+        await hass.async_block_till_done()
+    assert len(calls) == 1
+    assert calls[0].data["temperature"] == 70.0
+    await mgr.async_teardown("bed")

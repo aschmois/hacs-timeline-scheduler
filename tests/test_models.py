@@ -1,4 +1,6 @@
-from custom_components.timeline_scheduler.models import Schedule, WEEKDAYS
+import pytest
+
+from custom_components.timeline_scheduler.models import Schedule, WEEKDAYS, When
 
 RAW = {
     "id": "bed",
@@ -36,3 +38,11 @@ def test_empty_weekdays_preserved():
     sch = Schedule.from_dict(raw)
     assert sch.transitions[0].weekdays == []
     assert sch.to_dict()["transitions"][0]["weekdays"] == []
+
+
+def test_when_todict_fidelity_and_unknown_type_raises():
+    assert When("time", at="20:00").to_dict() == {"type": "time", "at": "20:00"}
+    assert When("anchor", entity="input_datetime.wakeup_time", offset="-00:30").to_dict() == {
+        "type": "anchor", "entity": "input_datetime.wakeup_time", "offset": "-00:30"}
+    with pytest.raises(ValueError):
+        When("solar", at="06:00").to_dict()

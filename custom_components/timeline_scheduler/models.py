@@ -22,7 +22,9 @@ class When:
     def to_dict(self) -> dict:
         if self.type == "time":
             return {"type": "time", "at": self.at}
-        return {"type": "anchor", "entity": self.entity, "offset": self.offset}
+        if self.type == "anchor":
+            return {"type": "anchor", "entity": self.entity, "offset": self.offset}
+        raise ValueError(f"Unknown When type: {self.type!r}")
 
 
 @dataclass
