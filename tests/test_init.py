@@ -2,10 +2,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.timeline_scheduler.const import DOMAIN
+
+from .helpers import setup_integration
 
 TZ = ZoneInfo("America/New_York")
 
@@ -17,8 +18,7 @@ RAW = {"id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
 async def test_setup_and_upsert_service_applies(hass):
     await hass.config.async_set_time_zone("America/New_York")
     calls = async_mock_service(hass, "climate", "set_temperature")
-    assert await async_setup_component(hass, DOMAIN, {DOMAIN: {}})
-    await hass.async_block_till_done()
+    await setup_integration(hass)
 
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
         await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)

@@ -1,7 +1,7 @@
 {
   "domain": "timeline_scheduler",
   "name": "Timeline Scheduler",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "documentation": "https://github.com/aschmois/hacs-timeline-scheduler",
   "issue_tracker": "https://github.com/aschmois/hacs-timeline-scheduler/issues",
   "codeowners": ["@aschmois"],
@@ -10,5 +10,6 @@
   "requirements": [],
   "iot_class": "local_push",
   "integration_type": "service",
-  "config_flow": false
+  "config_flow": true,
+  "single_config_entry": true
 }

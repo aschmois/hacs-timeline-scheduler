@@ -1,7 +1,8 @@
-from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.timeline_scheduler.const import DOMAIN
+
+from .helpers import setup_integration
 
 RAW = {"id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
        "apply": "climate_temperature",
@@ -10,8 +11,7 @@ RAW = {"id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
 
 async def _setup(hass):
     async_mock_service(hass, "climate", "set_temperature")
-    assert await async_setup_component(hass, DOMAIN, {DOMAIN: {}})
-    await hass.async_block_till_done()
+    await setup_integration(hass)
 
 
 async def test_ws_list_and_get(hass, hass_ws_client):

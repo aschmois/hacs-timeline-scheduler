@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Timeline Scheduler",
+        "description": "Add Timeline Scheduler? This registers the scheduling engine, its services, and the timeline card. No configuration is required."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Timeline Scheduler is already set up; only one instance is supported."
+    }
+  }
+}
