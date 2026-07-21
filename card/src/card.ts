@@ -2,9 +2,9 @@ import { LitElement, html, css, PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule } from './api';
-import { expandByDay, daySegments, resolveMin, fmtMin, DayEntry } from './schedule';
-import { plot, xOfMin, yOfTemp, tempColor } from './geometry';
+import { getSchedule, saveSchedule } from './api';
+import { expandByDay, daySegments, resolveMin, fmtMin, collapseToTransitions, DayEntry } from './schedule';
+import { plot, xOfMin, yOfTemp, tempColor, minOfX, tempOfY } from './geometry';
 
 interface CardConfig { schedule_id?: string; name?: string; }
 const DAY_LABEL: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
@@ -93,11 +93,46 @@ export class TimelineSchedulerCard extends LitElement {
       if (e.kind === 'anchor') grp.appendChild(el('circle', { class: 'ring', cx, cy, r: 11 }));
       grp.appendChild(el('circle', { class: 'body', cx, cy, r: 7, fill: off ? 'var(--tsc-off)' : tempColor(e.value as number) }));
       svg.appendChild(grp);
-      this._wireDot?.(grp as SVGGElement, e);
+      this._wireDot(grp as SVGGElement, e);
     }
   }
-  // hook overridden in Task 5; no-op here
-  protected _wireDot?(grp: SVGGElement, e: DayEntry): void;
+  protected _wireDot(grp: SVGGElement, e: DayEntry): void {
+    grp.addEventListener('pointerdown', (ev: PointerEvent) => {
+      ev.preventDefault(); this._sel = e.id; grp.setPointerCapture(ev.pointerId);
+      const svg = grp.ownerSVGElement!;
+      const toSvg = (px: number, py: number) => { const p = svg.createSVGPoint(); p.x = px; p.y = py; return p.matrixTransform(svg.getScreenCTM()!.inverse()); };
+      const alarm = e.kind === 'anchor' ? resolveMin({ ...e, offsetMin: 0 } as DayEntry, this.hass!) : null;
+      const move = (m2: PointerEvent) => {
+        const p = toSvg(m2.clientX, m2.clientY);
+        const min = Math.max(0, Math.min(1435, Math.round(minOfX(p.x) / 5) * 5));
+        if (e.kind === 'time') e.atMin = min;
+        else if (alarm !== null) e.offsetMin = Math.max(-300, Math.min(300, Math.round((min - alarm) / 5) * 5));
+        if (e.value !== 'off') e.value = Math.max(55, Math.min(110, Math.round(tempOfY(p.y))));
+        this._dirty = true; this.requestUpdate(); this._renderTimeline(svg as SVGSVGElement);
+      };
+      const up = () => { grp.releasePointerCapture(ev.pointerId); svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); this.requestUpdate(); };
+      svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up);
+    });
+  }
+
+  protected _addSetpoint(): void {
+    if (!this._perDay) return;
+    const id = 'n' + Math.random().toString(36).slice(2);
+    this._perDay[this._day].push({ id, kind: 'time', atMin: 12 * 60, value: 75 });
+    this._sel = id; this._dirty = true; this.requestUpdate();
+  }
+  protected _remove(id: string): void {
+    if (!this._perDay) return;
+    this._perDay[this._day] = this._perDay[this._day].filter((e) => e.id !== id);
+    if (this._sel === id) this._sel = null;
+    this._dirty = true; this.requestUpdate();
+  }
+  protected async _save(): Promise<void> {
+    if (!this.hass || !this._schedule || !this._perDay) return;
+    const next: Schedule = { ...this._schedule, transitions: collapseToTransitions(this._perDay) };
+    await saveSchedule(this.hass, next);
+    this._schedule = next; this._dirty = false; this.requestUpdate();
+  }
 
   private _statusNow() {
     if (!this.hass || !this._perDay) return { cur: '—', next: '' };
@@ -141,9 +176,15 @@ export class TimelineSchedulerCard extends LitElement {
       <span class="when">${m === null ? '—' : fmtMin(m)}</span>
       <span class="kind ${e.kind}">${e.kind === 'anchor' ? '⏰ alarm' : 'fixed'}</span>
       <span class="temp">${off ? 'OFF' : `${e.value}°`}</span>
+      <button class="rm" title="Remove" @click=${(ev: Event) => { ev.stopPropagation(); this._remove(e.id); }}>×</button>
     </div>`;
   }
-  protected _footer() { return html``; } // filled in Task 5
+  protected _footer() {
+    return html`<div class="foot">
+      <button class="act" @click=${() => this._addSetpoint()}>＋ Add setpoint</button>
+      <button class="act save" ?disabled=${!this._dirty} @click=${() => this._save()}>Save schedule</button>
+    </div>`;
+  }
 
   static styles = css`
     :host { display: block; }
@@ -176,6 +217,7 @@ export class TimelineSchedulerCard extends LitElement {
     .kind { font-size: 11px; color: var(--secondary-text-color); border: 1px solid var(--divider-color); padding: 1px 7px; border-radius: 999px; }
     .kind.anchor { color: var(--primary-color); border-color: var(--primary-color); }
     .temp { margin-left: auto; font-weight: 600; color: var(--primary-text-color); font-family: var(--code-font-family, monospace); }
+    .rm{margin-left:6px;border:none;background:transparent;color:var(--secondary-text-color);cursor:pointer;font-size:15px;border-radius:6px;width:24px;height:24px}.rm:hover{color:var(--error-color,#e06)}
     :host { --tsc-off: #6b7280; }
     .foot { display: flex; gap: 10px; padding: 10px 16px 16px; border-top: 1px solid var(--divider-color); }
     button.act { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 9px 13px; cursor: pointer;
