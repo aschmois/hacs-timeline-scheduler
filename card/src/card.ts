@@ -2,7 +2,7 @@ import { LitElement, html, css, PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule, saveSchedule } from './api';
+import { getSchedule, saveSchedule, listSchedules } from './api';
 import { expandByDay, daySegments, resolveMin, fmtMin, collapseToTransitions, DayEntry } from './schedule';
 import { plot, xOfMin, yOfTemp, tempColor, minOfX, tempOfY } from './geometry';
 
@@ -134,6 +134,17 @@ export class TimelineSchedulerCard extends LitElement {
     this._schedule = next; this._dirty = false; this.requestUpdate();
   }
 
+  static async getConfigElement() { await import('./editor'); return document.createElement('timeline-scheduler-card-editor'); }
+  static async getStubConfig(hass: HassLike) {
+    try { const list = await listSchedules(hass); if (list.length) return { schedule_id: list[0].id }; } catch { /* none */ }
+    return { schedule_id: '' };
+  }
+  protected _copyDayTo(target: Weekday): void {
+    if (!this._perDay || target === this._day) return;
+    this._perDay[target] = this._activeDay().map((e) => ({ ...e, id: 'c' + Math.random().toString(36).slice(2) }));
+    this._dirty = true; this.requestUpdate();
+  }
+
   private _statusNow() {
     if (!this.hass || !this._perDay) return { cur: '—', next: '' };
     const entries = this._activeDay();
@@ -182,6 +193,10 @@ export class TimelineSchedulerCard extends LitElement {
   protected _footer() {
     return html`<div class="foot">
       <button class="act" @click=${() => this._addSetpoint()}>＋ Add setpoint</button>
+      <select class="act" @change=${(e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v) { this._copyDayTo(v as Weekday); (e.target as HTMLSelectElement).value = ''; } }}>
+        <option value="">Copy day to…</option>
+        ${WEEKDAYS.filter((d) => d !== this._day).map((d) => html`<option value=${d}>${d}</option>`)}
+      </select>
       <button class="act save" ?disabled=${!this._dirty} @click=${() => this._save()}>Save schedule</button>
     </div>`;
   }
