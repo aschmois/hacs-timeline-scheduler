@@ -82,6 +82,29 @@ describe('card v2', () => {
     expect(el._sortedDay().map((e: any) => e.id)).toEqual(['b', 'c', 'a']);
   });
 
+  it("overlays today's actual + set-to history for a climate schedule", async () => {
+    const at = (h: number) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.getTime() / 1000; };
+    const hist: any = { 'climate.bed': [
+      { s: 'heat', a: { current_temperature: 68, temperature: 72 }, lu: at(6) },
+      { s: 'heat', a: { current_temperature: 70, temperature: 74 }, lu: at(12) },
+    ] };
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    el.hass = {
+      connection: { sendMessagePromise: async (m: any) =>
+        (m.type === 'history/history_during_period' ? hist
+          : m.type === 'timeline_scheduler/get' ? SCH : { schedules: [SCH] }) },
+      states: { 'climate.bed': { state: 'heat', attributes: { hvac_modes: ['off', 'auto', 'heat', 'cool'], current_temperature: 70, temperature: 74 } } },
+      config: { unit_system: { temperature: '°F' } },
+    };
+    for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el._hist.actual.length).toBe(2);
+    expect(el._hist.target.length).toBe(2);
+    expect(el.shadowRoot.querySelector('polyline.hist-actual')).toBeTruthy();
+    expect(el.shadowRoot.querySelector('polyline.hist-target')).toBeTruthy();
+    expect(el.shadowRoot.querySelector('.legend')).toBeTruthy();
+  });
+
   it('override / resume send the right WS commands', async () => {
     const sent: any[] = [];
     const el = document.createElement('timeline-scheduler-card') as any;

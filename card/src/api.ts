@@ -22,3 +22,19 @@ export const setOverride = (hass: HassLike, id: string, value: number | string):
 
 export const clearOverride = (hass: HassLike, id: string): Promise<unknown> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/clear_override', id_: id });
+
+export interface HistState { s: string; a?: Record<string, any>; lu: number; }
+export const fetchHistory = (
+  hass: HassLike, entityId: string, startISO: string, endISO: string,
+): Promise<HistState[]> =>
+  hass.connection
+    .sendMessagePromise<Record<string, HistState[]>>({
+      type: 'history/history_during_period',
+      start_time: startISO,
+      end_time: endISO,
+      entity_ids: [entityId],
+      minimal_response: false,
+      no_attributes: false,
+      significant_changes_only: false,
+    })
+    .then((r) => r[entityId] ?? []);

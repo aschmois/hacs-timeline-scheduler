@@ -2,7 +2,7 @@ import { LitElement, html, css, PropertyValues, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule, saveSchedule, listSchedules, setOverride, clearOverride } from './api';
+import { getSchedule, saveSchedule, listSchedules, setOverride, clearOverride, fetchHistory } from './api';
 import {
   expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM, isTemp,
   collapseToTransitions, DayEntry,
@@ -38,6 +38,8 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _saving = false;
   @state() protected _error?: string;
   @state() protected _ovInput = '';
+  @state() protected _hist?: { actual: { m: number; t: number }[]; target: { m: number; t: number }[] };
+  private _histFor?: string;
   private _loadedFor?: string;
   private _saveTimer?: ReturnType<typeof setTimeout>;
   private _editSeq = 0;
@@ -60,8 +62,36 @@ export class TimelineSchedulerCard extends LitElement {
       this._loadedFor = this._config.schedule_id;
       void this._load();
     }
+    this._maybeLoadHistory();
     const svg = this.renderRoot.querySelector('svg.tl');
     if (svg) this._renderTimeline(svg as SVGSVGElement);
+  }
+
+  /** Fetch today's actual + set-to temperatures for the target (once per day/schedule). */
+  protected _maybeLoadHistory(): void {
+    const showable = !!this.hass && !!this._schedule
+      && this._schedule.apply === 'climate_temperature' && this._day === todayKey();
+    if (!showable) { this._hist = undefined; this._histFor = undefined; return; }
+    const key = `${this._schedule!.id}:${this._day}`;
+    if (this._histFor === key) return;
+    this._histFor = key;
+    const entity = this._schedule!.target.entity_id;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    void fetchHistory(this.hass!, entity, start.toISOString(), new Date().toISOString())
+      .then((rows) => {
+        const actual: { m: number; t: number }[] = [];
+        const target: { m: number; t: number }[] = [];
+        for (const r of rows) {
+          const a = r.a || {};
+          const m = ((): number => { const d = new Date(r.lu * 1000); return d.getHours() * 60 + d.getMinutes(); })();
+          const ct = Number(a.current_temperature); if (Number.isFinite(ct)) actual.push({ m, t: ct });
+          const tt = Number(a.temperature); if (Number.isFinite(tt)) target.push({ m, t: tt });
+        }
+        actual.sort((x, y) => x.m - y.m); target.sort((x, y) => x.m - y.m);
+        this._hist = { actual, target };
+        this.requestUpdate();
+      })
+      .catch(() => { this._hist = undefined; });
   }
 
   protected async _load(): Promise<void> {
@@ -156,6 +186,20 @@ export class TimelineSchedulerCard extends LitElement {
         g('line', { class: 'segline', x1: x0, y1: y, x2: xOfMin(s.m1), y2: y, stroke: c });
       } else {
         g('rect', { x: x0, y: plot.mode - 6, width: w, height: 12, rx: 3, class: 'seg-mode' });
+      }
+    }
+    // historical overlay: actual temperature + what it was actually set to (today only)
+    if (this._hist && this._day === todayKey()) {
+      if (this._hist.target.length) {
+        const step: string[] = []; let prev: { m: number; t: number } | null = null;
+        for (const p of this._hist.target) {
+          if (prev) step.push(`${xOfMin(p.m)},${yOfTemp(prev.t, scale)}`);
+          step.push(`${xOfMin(p.m)},${yOfTemp(p.t, scale)}`); prev = p;
+        }
+        g('polyline', { class: 'hist-target', points: step.join(' ') });
+      }
+      if (this._hist.actual.length) {
+        g('polyline', { class: 'hist-actual', points: this._hist.actual.map((p) => `${xOfMin(p.m)},${yOfTemp(p.t, scale)}`).join(' ') });
       }
     }
     // now line
@@ -311,6 +355,11 @@ export class TimelineSchedulerCard extends LitElement {
           ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; }}>${DAY_LABEL[d]}</button>`)}
         </div>
         <svg class="tl" viewBox="0 0 500 262" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
+        ${this._hist && this._day === todayKey() ? html`<div class="legend">
+          <span><i class="ln sched"></i>Scheduled</span>
+          <span><i class="ln act"></i>Actual</span>
+          <span><i class="ln tgt"></i>Was set to</span>
+        </div>` : nothing}
         <div class="list">
           ${this._sortedDay().map((e) => this._row(e, scale))}
         </div>
@@ -475,6 +524,14 @@ export class TimelineSchedulerCard extends LitElement {
     .segline { stroke-width: 2.5; stroke-linecap: round; }
     .seg-mode { fill: var(--tsc-mode); opacity: .3; }
     .nowline { stroke: var(--secondary-text-color); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
+    .hist-actual { fill: none; stroke: var(--primary-text-color); stroke-width: 1.4; opacity: .75; stroke-linejoin: round; stroke-linecap: round; }
+    .hist-target { fill: none; stroke: var(--secondary-text-color); stroke-width: 1.4; opacity: .6; stroke-dasharray: 4 3; stroke-linejoin: round; }
+    .legend { display: flex; gap: 14px; padding: 2px 16px 8px; font-size: 11px; color: var(--secondary-text-color); flex-wrap: wrap; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend .ln { width: 14px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
+    .legend .ln.sched { border-top-color: var(--primary-color); border-top-width: 3px; }
+    .legend .ln.act { border-top-color: var(--primary-text-color); }
+    .legend .ln.tgt { border-top-style: dashed; }
     .vlabel { fill: var(--primary-text-color); font-size: 14px; font-weight: 700; paint-order: stroke;
       stroke: var(--card-background-color); stroke-width: 3.5px; stroke-linejoin: round; }
     .dot { cursor: grab; } .dot:active { cursor: grabbing; } .dot.ro { cursor: pointer; }
