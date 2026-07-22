@@ -23,7 +23,9 @@ from homeassistant.util import slugify
 from .const import DOMAIN, SCHEDULE_SUBENTRY_TYPE
 from .models import Schedule
 
-APPLY_OPTIONS = ["switch_onoff", "climate_temperature", "climate_hvac_mode", "number_set"]
+# climate_temperature covers HVAC modes too (a non-numeric setpoint value maps
+# to set_hvac_mode), so a dedicated climate_hvac_mode apply type is redundant.
+APPLY_OPTIONS = ["switch_onoff", "climate_temperature", "number_set"]
 
 
 def _schedule_schema() -> vol.Schema:

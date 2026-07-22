@@ -59,7 +59,6 @@
       "options": {
         "switch_onoff": "Switch on/off",
         "climate_temperature": "Climate temperature",
-        "climate_hvac_mode": "Climate HVAC mode",
         "number_set": "Number value"
       }
     }

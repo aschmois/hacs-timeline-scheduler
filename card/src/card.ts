@@ -88,10 +88,9 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _applyKind(): 'temp' | 'mode' | 'onoff' | 'number' {
     switch (this._schedule?.apply) {
-      case 'climate_hvac_mode': return 'mode';
       case 'switch_onoff': return 'onoff';
       case 'number_set': return 'number';
-      default: return 'temp';
+      default: return 'temp'; // climate_temperature — temperature or HVAC mode per setpoint
     }
   }
   protected _modeOptions(): string[] {

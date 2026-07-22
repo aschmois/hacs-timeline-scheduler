@@ -21,7 +21,7 @@ upsert_schedule:
       example: climate_temperature
       selector:
         select:
-          options: [switch_onoff, climate_temperature, climate_hvac_mode, number_set]
+          options: [switch_onoff, climate_temperature, number_set]
     transitions:
       required: true
       selector:

@@ -34,9 +34,11 @@ async def test_next_change_sensor_reports_state_and_attributes(hass, hass_storag
     parsed = dt_util.parse_datetime(state.state)
     assert parsed is not None
     assert dt_util.as_local(parsed).strftime("%H:%M") == "22:00"
-    assert state.attributes["current_target"] == 80
-    assert state.attributes["next_target"] == 70
     assert state.attributes["active_transition_id"] == "a"
+
+    # current + next value are dedicated sensors (numbers here; could be modes)
+    assert hass.states.get("sensor.bed_current").state == "80"
+    assert hass.states.get("sensor.bed_next").state == "70"
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
