@@ -39,13 +39,19 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _error?: string;
   private _loadedFor?: string;
   private _saveTimer?: ReturnType<typeof setTimeout>;
+  private _editSeq = 0;
 
   public setConfig(config: CardConfig): void {
     if (!config) throw new Error('Invalid configuration');
     this._config = config;
   }
   public getCardSize(): number { return 7; }
-  disconnectedCallback(): void { super.disconnectedCallback(); if (this._saveTimer) clearTimeout(this._saveTimer); }
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = undefined; }
+    // Flush a queued edit so navigating away mid-debounce doesn't drop the save.
+    if (this._dirty) void this._sync();
+  }
 
   protected updated(changed: PropertyValues): void {
     if ((changed.has('hass') || changed.has('_config')) && this.hass && this._config?.schedule_id
@@ -162,8 +168,12 @@ export class TimelineSchedulerCard extends LitElement {
     grp.addEventListener('pointerdown', (ev: PointerEvent) => {
       this._sel = e.id;
       if (this._locked) { this.requestUpdate(); return; }
-      ev.preventDefault(); grp.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
       const svg = grp.ownerSVGElement!;
+      // Capture on the <svg> (which persists across re-renders), not on the
+      // dot <g> (which _renderTimeline recreates on every move) — so the drag
+      // keeps tracking even when the pointer moves fast or leaves the chart.
+      svg.setPointerCapture(ev.pointerId);
       const toSvg = (px: number, py: number) => { const p = svg.createSVGPoint(); p.x = px; p.y = py; return p.matrixTransform(svg.getScreenCTM()!.inverse()); };
       const alarm = e.kind === 'anchor' ? resolveMin({ ...e, offsetMin: 0 } as DayEntry, this.hass!) : null;
       const move = (m2: PointerEvent) => {
@@ -174,25 +184,32 @@ export class TimelineSchedulerCard extends LitElement {
         if (isTemp(e.value)) e.value = Math.max(scale.tmin, Math.min(scale.tmax, Math.round(tempOfY(p.y, scale))));
         this.requestUpdate();
       };
-      const up = () => { grp.releasePointerCapture(ev.pointerId); svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); this._scheduleSync(); };
+      const up = () => {
+        try { svg.releasePointerCapture(ev.pointerId); } catch { /* already released */ }
+        svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up);
+        this._scheduleSync();
+      };
       svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up);
     });
   }
 
   // ---- mutations + auto-save ------------------------------------------------
   protected _scheduleSync(): void {
-    this._dirty = true; this.requestUpdate();
+    this._dirty = true; this._editSeq++; this.requestUpdate();
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => void this._sync(), 700);
   }
   protected async _sync(): Promise<void> {
     if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = undefined; }
     if (!this.hass || !this._schedule || !this._perDay) return;
+    const seq = this._editSeq;
     const next: Schedule = { ...this._schedule, transitions: collapseToTransitions(this._perDay) };
     this._saving = true; this.requestUpdate();
     try {
       await saveSchedule(this.hass, next);
-      this._schedule = next; this._dirty = false; this._error = undefined;
+      this._schedule = next; this._error = undefined;
+      // Only mark clean if no newer edit arrived while this save was in flight.
+      if (this._editSeq === seq) this._dirty = false;
     } catch (err) {
       this._error = `Save failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -238,7 +255,7 @@ export class TimelineSchedulerCard extends LitElement {
 
   render() {
     if (!this._config) return html``;
-    const s = this._schedule; const st = this._statusNow();
+    const s = this._schedule; const st = this._statusNow(); const scale = this._scale();
     return html`
       <ha-card>
         <div class="head">
@@ -261,15 +278,15 @@ export class TimelineSchedulerCard extends LitElement {
         </div>
         <svg class="tl" viewBox="0 0 1000 288" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
         <div class="list">
-          ${this._activeDay().map((e) => this._row(e))}
+          ${this._activeDay().map((e) => this._row(e, scale))}
         </div>
         ${this._detail()}
         ${this._footer()}
       </ha-card>`;
   }
 
-  protected _row(e: DayEntry) {
-    const m = resolveMin(e, this.hass!); const temp = isTemp(e.value); const scale = this._scale();
+  protected _row(e: DayEntry, scale: Scale) {
+    const m = resolveMin(e, this.hass!); const temp = isTemp(e.value);
     return html`<div class="row ${e.id === this._sel ? 'sel' : ''}" @click=${() => (this._sel = e.id)}>
       <span class="sw" style=${`background:${temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)'}`}></span>
       <span class="when">${m === null ? '—' : fmtClock(m, this.hass)}</span>

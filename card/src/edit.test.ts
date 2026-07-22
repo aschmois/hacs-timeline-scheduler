@@ -37,4 +37,13 @@ describe('editing', () => {
     expect(saved[0].transitions.length).toBe(8);
     expect(el._dirty).toBe(false);
   });
+  it('flushes a pending debounced save when disconnected mid-edit', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._addSetpoint();               // arms the 700ms debounce
+    expect(el._dirty).toBe(true);
+    expect(saved.length).toBe(0);    // not saved yet
+    el.remove();                     // triggers disconnectedCallback -> flush
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saved.length).toBe(1);    // save was not dropped
+  });
 });
