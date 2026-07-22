@@ -44,7 +44,7 @@ async def test_setup_registers_card_static_path(hass):
         f"Card URL {CARD_URL!r} not in registered static paths: {registered_paths}"
     )
 
-    # Verify frontend extra JS URL was registered
-    assert CARD_URL in registered_urls, (
+    # Verify frontend extra JS URL was registered (may carry a ?v= cache-buster)
+    assert any(u.split("?")[0] == CARD_URL for u in registered_urls), (
         f"Card URL {CARD_URL!r} not in registered frontend URLs: {registered_urls}"
     )

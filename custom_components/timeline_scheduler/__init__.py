@@ -9,6 +9,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, SCHEDULE_SUBENTRY_TYPE
 from .manager import TimelineManager
@@ -95,7 +96,14 @@ async def _async_register_platform(hass: HomeAssistant) -> None:
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL, CARD_PATH, False)]
         )
-        add_extra_js_url(hass, CARD_URL)
+        # Append the integration version so a browser cache-busts the card on
+        # every update (the static handler ignores the query string).
+        try:
+            integration = await async_get_integration(hass, DOMAIN)
+            card_url = f"{CARD_URL}?v={integration.version}"
+        except Exception:  # noqa: BLE001 - fall back to the bare URL
+            card_url = CARD_URL
+        add_extra_js_url(hass, card_url)
     else:
         _LOGGER.warning(
             "Timeline Scheduler card found but hass.http is unavailable; card not served"
