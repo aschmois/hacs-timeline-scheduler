@@ -391,9 +391,15 @@ export class TimelineSchedulerCard extends LitElement {
     switch (this._applyKind()) {
       case 'onoff': actual = st.state; break;
       case 'number': { const n = Number(st.state); if (Number.isFinite(n)) actual = n; break; }
-      default: // climate temperature
-        if (st.state === 'off') actual = 'off';
-        else if (st.attributes && st.attributes.temperature != null) actual = Number(st.attributes.temperature);
+      default:
+        // climate_temperature: a scheduled number compares to the target temp;
+        // a scheduled mode (auto/off/heat…) compares to the HVAC mode (state).
+        if (typeof planned === 'number') {
+          if (st.state === 'off') actual = 'off';
+          else if (st.attributes && st.attributes.temperature != null) actual = Number(st.attributes.temperature);
+        } else {
+          actual = st.state;
+        }
     }
     if (actual === undefined) return { active: false };
     const differ = typeof planned === 'number' && typeof actual === 'number'

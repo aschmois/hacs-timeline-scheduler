@@ -127,6 +127,25 @@ describe('card v2', () => {
     expect(sent.some((m: any) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
   });
 
+  it('mode-scheduled override compares hvac state, not temperature', async () => {
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const SC: any = {
+      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
+      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: 'auto', weekdays: days }],
+    };
+    const mk = (state: string) => ({
+      connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? SC : { schedules: [SC] }) },
+      states: { 'climate.bed': { state, attributes: { temperature: 73, hvac_modes: ['off', 'auto'] } } },
+      config: { unit_system: { temperature: '°F' } },
+    });
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el); el.hass = mk('auto');
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el._overrideInfo().active).toBe(false); // scheduled auto, actual auto -> not overridden
+    el.hass = mk('off'); await el.updateComplete;
+    expect(el._overrideInfo().active).toBe(true); // scheduled auto, actual off -> overridden
+  });
+
   it('renders a simple On/Off view for switch_onoff schedules (no temperature axis)', async () => {
     const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const SW: any = {
