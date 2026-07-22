@@ -27,6 +27,10 @@
             "target": "Target entity",
             "apply": "Apply as",
             "enabled": "Enabled"
+          },
+          "data_description": {
+            "target": "The entity this schedule controls — a switch/light, a climate (thermostat), or a number.",
+            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Values are temperatures, e.g. 72.\n- **Climate HVAC mode** — a thermostat's mode. Values like heat, cool, off.\n- **Number value** — a number entity. Values are plain numbers."
           }
         },
         "reconfigure": {
@@ -37,6 +41,10 @@
             "target": "Target entity",
             "apply": "Apply as",
             "enabled": "Enabled"
+          },
+          "data_description": {
+            "target": "The entity this schedule controls — a switch/light, a climate (thermostat), or a number.",
+            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Values are temperatures, e.g. 72.\n- **Climate HVAC mode** — a thermostat's mode. Values like heat, cool, off.\n- **Number value** — a number entity. Values are plain numbers."
           }
         }
       },
