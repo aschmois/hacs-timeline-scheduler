@@ -6,6 +6,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 export const fmtMin = (m: number) => { m = ((Math.round(m) % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
 // Human display: 12h AM/PM by default; 24h only if HA's locale is set to 24h.
 export function fmtClock(m: number, hass?: HassLike): string {
+  if (!Number.isFinite(m)) return '—';
   m = ((Math.round(m) % 1440) + 1440) % 1440;
   const h24 = Math.floor(m / 60), mi = m % 60;
   if (hass?.locale?.time_format === '24') return `${pad(h24)}:${pad(mi)}`;
@@ -57,9 +58,21 @@ export function resolveMin(e: DayEntry, hass: HassLike): number | null {
   if (e.kind === 'time') return e.atMin ?? null;
   const st = e.entity ? hass.states[e.entity] : undefined;
   if (!st || st.state === 'unknown' || st.state === 'unavailable' || st.state === '') return null;
-  const parts = st.state.split(':'); if (parts.length < 2) return null;
-  const alarm = Number(parts[0]) * 60 + Number(parts[1]);
-  return (((alarm + (e.offsetMin ?? 0)) % 1440) + 1440) % 1440;
+  const s = st.state;
+  let mins: number | null = null;
+  // ISO datetime (e.g. sensor.sun_next_dawn = "2026-07-22T10:30:00+00:00") → localize
+  if (s.includes('T') || /^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) mins = d.getHours() * 60 + d.getMinutes();
+  }
+  if (mins === null) {
+    // plain clock "HH:MM[:SS]"
+    const parts = s.split(':');
+    const h = Number(parts[0]), mi = Number(parts[1]);
+    if (parts.length >= 2 && Number.isFinite(h) && Number.isFinite(mi)) mins = h * 60 + mi;
+  }
+  if (mins === null) return null;
+  return (((mins + (e.offsetMin ?? 0)) % 1440) + 1440) % 1440;
 }
 
 export function daySegments(entries: DayEntry[], hass: HassLike): { m0: number; m1: number; value: SetVal }[] {

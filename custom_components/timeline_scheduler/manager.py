@@ -48,9 +48,13 @@ class TimelineManager:
         await self.async_refresh(sid)
 
     async def async_clear_override(self, sid: str) -> None:
-        """Drop any manual override and re-apply the schedule."""
-        if self._override.pop(sid, None) is not None:
-            await self.async_refresh(sid)
+        """Drop any manual override and re-apply the schedule.
+
+        Always re-applies so it also "resumes" after an external change to the
+        target entity (which the engine didn't record as an override).
+        """
+        self._override.pop(sid, None)
+        await self.async_refresh(sid)
 
     def _anchor_lookup(self, entity_id: str) -> time | None:
         st = self.hass.states.get(entity_id)

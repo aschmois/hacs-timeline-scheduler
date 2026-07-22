@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { expandByDay, collapseToTransitions, daySegments, parseOffsetMin, fmtMin } from './schedule';
+import { expandByDay, collapseToTransitions, daySegments, parseOffsetMin, fmtMin, resolveMin, fmtClock } from './schedule';
 import type { Schedule } from './types';
 
 const SCH: Schedule = {
@@ -30,6 +30,20 @@ describe('schedule', () => {
     expect(flat.length).toBe(3);
     expect(flat.every((t) => t.weekdays!.length === 1)).toBe(true);
   });
+  it('resolveMin parses ISO datetime anchor states (sun_next_dawn) and plain clocks', () => {
+    const e = { id: 'x', kind: 'anchor', entity: 'sensor.sun_next_dawn', offsetMin: 0, value: 'on' } as any;
+    // local-time ISO (no tz) parses deterministically as 10:30 local
+    const isoHass = { states: { 'sensor.sun_next_dawn': { state: '2026-07-22T10:30:00' } } } as any;
+    expect(resolveMin(e, isoHass)).toBe(10 * 60 + 30);
+    // plain clock still works
+    const clockHass = { states: { 'sensor.sun_next_dawn': { state: '06:45:00' } } } as any;
+    expect(resolveMin(e, clockHass)).toBe(6 * 60 + 45);
+    // unparseable -> null (not NaN), so display shows "—" not "12:NaN PM"
+    const badHass = { states: { 'sensor.sun_next_dawn': { state: 'above_horizon' } } } as any;
+    expect(resolveMin(e, badHass)).toBeNull();
+    expect(fmtClock(NaN)).toBe('—');
+  });
+
   it('daySegments builds a wrapping step function resolving anchors', () => {
     const by = expandByDay(SCH);
     const segs = daySegments(by.mon, hass); // anchor 06:30-00:30 = 06:00 -> 95; 20:00 -> 80

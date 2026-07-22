@@ -105,6 +105,48 @@ describe('card v2', () => {
     expect(el.shadowRoot.querySelector('.legend')).toBeTruthy();
   });
 
+  it('shows an Override badge + Resume when the target diverges from the scheduled value', async () => {
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const SC: any = {
+      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
+      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: 70, weekdays: days }],
+    };
+    const sent: any[] = [];
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    el.hass = {
+      connection: { sendMessagePromise: async (m: any) => { sent.push(m); return m.type === 'timeline_scheduler/get' ? SC : { schedules: [SC] }; } },
+      states: { 'climate.bed': { state: 'heat', attributes: { temperature: 66, hvac_modes: ['off', 'auto', 'heat', 'cool'] } } },
+      config: { unit_system: { temperature: '°F' } },
+    };
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el._overrideInfo().active).toBe(true);
+    expect(el.shadowRoot.querySelector('.ovbadge')).toBeTruthy();
+    el.shadowRoot.querySelector('.reslink').click();
+    await el.updateComplete;
+    expect(sent.some((m: any) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
+  });
+
+  it('renders a simple On/Off view for switch_onoff schedules (no temperature axis)', async () => {
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const SW: any = {
+      id: 'shed', name: 'Shed', enabled: true, target: { entity_id: 'switch.shed' }, apply: 'switch_onoff', default: null,
+      transitions: [
+        { id: 'a', when: { type: 'time', at: '08:00' }, value: 'on', weekdays: days },
+        { id: 'b', when: { type: 'time', at: '20:00' }, value: 'off', weekdays: days },
+      ],
+    };
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'shed' }); document.body.appendChild(el);
+    el.hass = { connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? SW : { schedules: [SW] }) }, states: {} };
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    const axisTexts = [...el.shadowRoot.querySelectorAll('text.axis')].map((t: any) => t.textContent);
+    expect(axisTexts).toContain('On');
+    expect(axisTexts).toContain('Off');
+    expect(axisTexts.some((t: string) => t && t.includes('°'))).toBe(false); // no temperature axis
+    expect(el.shadowRoot.querySelectorAll('.dot').length).toBe(2);
+  });
+
   it('override / resume send the right WS commands', async () => {
     const sent: any[] = [];
     const el = document.createElement('timeline-scheduler-card') as any;

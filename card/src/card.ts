@@ -62,7 +62,6 @@ export class TimelineSchedulerCard extends LitElement {
       this._loadedFor = this._config.schedule_id;
       void this._load();
     }
-    this._maybeLoadHistory();
     const svg = this.renderRoot.querySelector('svg.tl');
     if (svg) this._renderTimeline(svg as SVGSVGElement);
   }
@@ -102,6 +101,7 @@ export class TimelineSchedulerCard extends LitElement {
     } catch (err) {
       this._error = `Couldn't load schedule "${this._config.schedule_id}": ${err instanceof Error ? err.message : String(err)}`;
     }
+    this._maybeLoadHistory();
     this.requestUpdate();
   }
 
@@ -162,6 +162,7 @@ export class TimelineSchedulerCard extends LitElement {
     const scale = this._scale();
     const entries = this._activeDay();
     const g = (n: string, a: Record<string, string | number>) => { const e = el(n, a); svg.appendChild(e); return e; };
+    if (this._applyKind() === 'onoff') { this._renderOnOff(svg, entries, scale); return; }
     // temperature gridlines + axis
     const step = gridStep(scale.unit);
     for (let t = Math.ceil(scale.tmin / step) * step; t <= scale.tmax; t += step) {
@@ -208,16 +209,53 @@ export class TimelineSchedulerCard extends LitElement {
     // dots + value labels
     for (const e of entries) {
       const m = resolveMin(e, this.hass); if (m === null) continue;
-      const temp = isTemp(e.value); const cx = xOfMin(m), cy = temp ? yOfTemp(e.value as number, scale) : plot.mode;
-      const grp = el('g', { class: 'dot' + (e.id === this._sel ? ' sel' : '') + (this._locked ? ' ro' : ''), 'data-id': e.id, tabindex: 0 });
-      grp.appendChild(el('circle', { class: 'hit', cx, cy, r: 18 }));
-      if (e.kind === 'anchor') grp.appendChild(el('circle', { class: 'ring', cx, cy, r: 11 }));
-      grp.appendChild(el('circle', { class: 'body', cx, cy, r: 7, fill: temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)' }));
-      const ly = cy - 12 < plot.T + 8 ? cy + 20 : cy - 12; // flip below when near the top edge
-      const lbl = el('text', { class: 'vlabel', x: cx, y: ly, 'text-anchor': 'middle' });
-      lbl.textContent = this._fmtVal(e.value); grp.appendChild(lbl);
-      svg.appendChild(grp);
-      this._wireDot(grp as SVGGElement, e, scale);
+      const temp = isTemp(e.value); const cy = temp ? yOfTemp(e.value as number, scale) : plot.mode;
+      this._addDot(svg, e, xOfMin(m), cy, temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)', scale);
+    }
+  }
+
+  /** Draw + wire a draggable setpoint dot at (cx, cy). */
+  protected _addDot(svg: SVGSVGElement, e: DayEntry, cx: number, cy: number, fill: string, scale: Scale): void {
+    const grp = el('g', { class: 'dot' + (e.id === this._sel ? ' sel' : '') + (this._locked ? ' ro' : ''), 'data-id': e.id, tabindex: 0 });
+    grp.appendChild(el('circle', { class: 'hit', cx, cy, r: 18 }));
+    if (e.kind === 'anchor') grp.appendChild(el('circle', { class: 'ring', cx, cy, r: 11 }));
+    grp.appendChild(el('circle', { class: 'body', cx, cy, r: 7, fill }));
+    const ly = cy - 12 < plot.T + 8 ? cy + 20 : cy - 12; // flip below when near the top edge
+    const lbl = el('text', { class: 'vlabel', x: cx, y: ly, 'text-anchor': 'middle' });
+    lbl.textContent = this._fmtVal(e.value); grp.appendChild(lbl);
+    svg.appendChild(grp);
+    this._wireDot(grp as SVGGElement, e, scale);
+  }
+
+  /** Simple two-level On/Off timeline (switch_onoff schedules). */
+  protected _renderOnOff(svg: SVGSVGElement, entries: DayEntry[], scale: Scale): void {
+    const g = (n: string, a: Record<string, string | number>) => { const e2 = el(n, a); svg.appendChild(e2); return e2; };
+    const onY = plot.T + 26, offY = plot.B - 6;
+    const isOn = (v: SetVal) => ['on', 'true', '1', 'yes'].includes(String(v).toLowerCase());
+    const levels: [number, string][] = [[onY, 'On'], [offY, 'Off']];
+    for (const [y, label] of levels) {
+      g('line', { class: 'grid', x1: plot.L, y1: y, x2: plot.R, y2: y });
+      const tx = g('text', { class: 'axis', x: plot.L - 9, y: y + 4, 'text-anchor': 'end' }); tx.textContent = label;
+    }
+    for (let h = 0; h <= 24; h += 3) {
+      g('line', { class: 'grid', x1: xOfMin(h * 60), y1: plot.T, x2: xOfMin(h * 60), y2: offY });
+      const ax = g('text', { class: 'axis', x: xOfMin(h * 60), y: plot.axis, 'text-anchor': h === 0 ? 'start' : h === 24 ? 'end' : 'middle' });
+      ax.textContent = hourLabel(h);
+    }
+    let prevY: number | null = null;
+    for (const s of daySegments(entries, this.hass!)) {
+      const y = isOn(s.value) ? onY : offY;
+      const x0 = xOfMin(s.m0), x1 = xOfMin(s.m1);
+      if (isOn(s.value)) g('rect', { x: x0, y: onY, width: Math.max(0, x1 - x0), height: offY - onY, fill: 'var(--primary-color)', opacity: 0.14 });
+      if (prevY !== null) g('line', { class: 'segline', x1: x0, y1: prevY, x2: x0, y2: y, stroke: 'var(--primary-color)' });
+      g('line', { class: 'segline', x1: x0, y1: y, x2: x1, y2: y, stroke: 'var(--primary-color)' });
+      prevY = y;
+    }
+    const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
+    g('line', { class: 'nowline', x1: xOfMin(nm), y1: plot.T, x2: xOfMin(nm), y2: offY });
+    for (const e of entries) {
+      const m = resolveMin(e, this.hass!); if (m === null) continue;
+      this._addDot(svg, e, xOfMin(m), isOn(e.value) ? onY : offY, 'var(--primary-color)', scale);
     }
   }
   protected _wireDot(grp: SVGGElement, e: DayEntry, scale: Scale): void {
@@ -331,9 +369,42 @@ export class TimelineSchedulerCard extends LitElement {
     return { cur: this._fmtVal(cur.v), next: `→ ${this._fmtVal(nxt.v)} at ${fmtClock(nxt.m!, this.hass)}` };
   }
 
+  /** The value the schedule would be holding right now (today). */
+  protected _plannedNow(): SetVal | undefined {
+    if (!this._perDay || !this.hass) return undefined;
+    const pts = this._activeDay().map((e) => ({ m: resolveMin(e, this.hass!), v: e.value })).filter((p) => p.m !== null).sort((a, b) => (a.m! - b.m!));
+    if (!pts.length) return this._schedule?.default?.value ?? undefined;
+    const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
+    let cur = pts[pts.length - 1].v; for (const p of pts) if (p.m! <= nm) cur = p.v;
+    return cur;
+  }
+
+  /** True when the target's actual value diverges from the scheduled value now
+   *  (a manual override OR an external change), plus that actual value. */
+  protected _overrideInfo(): { active: boolean; actual?: SetVal } {
+    if (!this.hass || !this._schedule || this._day !== todayKey()) return { active: false };
+    const st = this.hass.states[this._schedule.target.entity_id];
+    if (!st) return { active: false };
+    const planned = this._plannedNow();
+    if (planned === undefined || planned === null) return { active: false };
+    let actual: SetVal | undefined;
+    switch (this._applyKind()) {
+      case 'onoff': actual = st.state; break;
+      case 'number': { const n = Number(st.state); if (Number.isFinite(n)) actual = n; break; }
+      default: // climate temperature
+        if (st.state === 'off') actual = 'off';
+        else if (st.attributes && st.attributes.temperature != null) actual = Number(st.attributes.temperature);
+    }
+    if (actual === undefined) return { active: false };
+    const differ = typeof planned === 'number' && typeof actual === 'number'
+      ? Math.abs(planned - actual) >= 0.5
+      : String(planned).toLowerCase() !== String(actual).toLowerCase();
+    return { active: differ, actual };
+  }
+
   render() {
     if (!this._config) return html``;
-    const s = this._schedule; const st = this._statusNow(); const scale = this._scale();
+    const s = this._schedule; const st = this._statusNow(); const scale = this._scale(); const ov = this._overrideInfo();
     return html`
       <ha-card>
         <div class="head">
@@ -341,7 +412,12 @@ export class TimelineSchedulerCard extends LitElement {
             title=${this._deviceId() ? 'Open device' : ''} @click=${() => this._openDevice()}>
             <h2>${this._config.name ?? s?.name ?? 'Schedule'}</h2>
           </div>
-          <div class="now"><div class="cur">${st.cur}</div><div class="nxt">${st.next}</div></div>
+          <div class="now">
+            <div class="cur">${ov.active ? this._fmtVal(ov.actual!) : st.cur}</div>
+            ${ov.active
+              ? html`<div class="nxt"><span class="ovbadge">Override</span><button class="reslink" title="Re-apply the schedule now" @click=${() => this._clearOverride()}>Resume</button></div>`
+              : html`<div class="nxt">${st.next}</div>`}
+          </div>
           <button class="lock" title=${this._locked ? 'Locked — tap to edit' : 'Unlocked — tap to lock'}
             aria-pressed=${!this._locked} @click=${() => this._toggleLock()}>${this._locked ? '🔒' : '🔓'}</button>
         </div>
@@ -352,7 +428,7 @@ export class TimelineSchedulerCard extends LitElement {
             : this._locked ? nothing : html`<span class="ok">Changes save automatically</span>`}
         </div>
         <div class="days">
-          ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; }}>${DAY_LABEL[d]}</button>`)}
+          ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; this._maybeLoadHistory(); }}>${DAY_LABEL[d]}</button>`)}
         </div>
         <svg class="tl" viewBox="0 0 500 262" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
         ${this._hist && this._day === todayKey() ? html`<div class="legend">
@@ -510,6 +586,9 @@ export class TimelineSchedulerCard extends LitElement {
     .now { margin-left: auto; text-align: right; }
     .now .cur { font-size: 22px; font-weight: 700; color: var(--primary-text-color); }
     .now .nxt { font-size: 12px; color: var(--secondary-text-color); }
+    .ovbadge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--warning-color, #e0a020); border: 1px solid var(--warning-color, #e0a020); padding: 0 6px; border-radius: 999px; margin-right: 6px; }
+    .reslink { font: inherit; font-size: 12px; border: none; background: transparent; color: var(--primary-color); cursor: pointer; padding: 0; text-decoration: underline; }
     .lock { border: none; background: transparent; cursor: pointer; font-size: 18px; padding: 2px 4px; border-radius: 8px; line-height: 1; }
     .lock:hover { background: var(--secondary-background-color); }
     .status { min-height: 16px; padding: 0 16px 6px; font-size: 12px; }
