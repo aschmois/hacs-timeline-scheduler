@@ -20,4 +20,9 @@ describe('geometry', () => {
     expect(makeScale('F', [120]).tmax).toBeGreaterThanOrEqual(120);
     expect(makeScale('C', [-5]).tmin).toBeLessThanOrEqual(-5);
   });
+  it('makeScale honors device bounds and still widens for out-of-range setpoints', () => {
+    expect([makeScale('F', [], { min: 55, max: 118 }).tmin, makeScale('F', [], { min: 55, max: 118 }).tmax]).toEqual([55, 118]);
+    expect(makeScale('F', [130], { min: 55, max: 118 }).tmax).toBeGreaterThanOrEqual(130);
+    expect(makeScale('F', [], { min: 100, max: 50 }).tmin).toBe(DEFAULT_RANGE.F[0]); // invalid bounds ignored
+  });
 });

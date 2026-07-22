@@ -13,9 +13,15 @@ export interface Scale { unit: TempUnit; tmin: number; tmax: number; }
 export const DEFAULT_RANGE: Record<TempUnit, [number, number]> = { C: [10, 43], F: [50, 110] };
 export const gridStep = (unit: TempUnit) => (unit === 'C' ? 5 : 10);
 
-/** Build a temperature scale for `unit`, widened to include any out-of-range values. */
-export function makeScale(unit: TempUnit, values: number[] = []): Scale {
-  let [tmin, tmax] = DEFAULT_RANGE[unit];
+/** Build a temperature scale: use the device's [min,max] if given (else the
+ *  per-unit default), then widen to include any out-of-range setpoint values. */
+export function makeScale(unit: TempUnit, values: number[] = [], bounds?: { min: number; max: number }): Scale {
+  let tmin: number, tmax: number;
+  if (bounds && Number.isFinite(bounds.min) && Number.isFinite(bounds.max) && bounds.max > bounds.min) {
+    ({ min: tmin, max: tmax } = bounds);
+  } else {
+    [tmin, tmax] = DEFAULT_RANGE[unit];
+  }
   const step = gridStep(unit);
   for (const v of values) {
     if (!Number.isFinite(v)) continue;

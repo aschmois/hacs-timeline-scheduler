@@ -115,7 +115,23 @@ export class TimelineSchedulerCard extends LitElement {
   protected _scale(): Scale {
     const vals: number[] = [];
     if (this._perDay) for (const d of WEEKDAYS) for (const e of this._perDay[d]) if (isTemp(e.value)) vals.push(e.value);
-    return makeScale(this._unit(), vals);
+    // Device min/max are in the HA system unit; only apply when the card unit matches.
+    const bounds = this._unitMatchesSystem() ? this._targetBounds() : undefined;
+    return makeScale(this._unit(), vals, bounds);
+  }
+  protected _unitMatchesSystem(): boolean {
+    const forced = this._config?.unit;
+    if (forced !== 'C' && forced !== 'F') return true; // 'auto' follows the system
+    const sys = this.hass?.config?.unit_system?.temperature;
+    return (sys && sys.includes('C') ? 'C' : 'F') === forced;
+  }
+  protected _targetBounds(): { min: number; max: number } | undefined {
+    const t = this._schedule?.target.entity_id;
+    const a = t ? this.hass?.states[t]?.attributes : undefined;
+    if (!a) return undefined;
+    const lo = a.min_temp ?? a.min, hi = a.max_temp ?? a.max; // climate: min_temp/max_temp; number: min/max
+    if (lo != null && hi != null && Number(hi) > Number(lo)) return { min: Number(lo), max: Number(hi) };
+    return undefined;
   }
   protected _applyKind(): 'temp' | 'mode' | 'onoff' | 'number' {
     switch (this._schedule?.apply) {

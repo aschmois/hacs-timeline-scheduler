@@ -127,6 +127,24 @@ describe('card v2', () => {
     expect(sent.some((m: any) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
   });
 
+  it('temperature axis uses the device min_temp/max_temp', async () => {
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const SC: any = {
+      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
+      transitions: [{ id: 'a', when: { type: 'time', at: '20:00' }, value: 72, weekdays: days }],
+    };
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    el.hass = {
+      connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? SC : { schedules: [SC] }) },
+      states: { 'climate.bed': { state: 'auto', attributes: { min_temp: 55, max_temp: 118, temperature: 72, hvac_modes: ['off', 'auto'] } } },
+      config: { unit_system: { temperature: '°F' } },
+    };
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el._scale().tmin).toBe(55);
+    expect(el._scale().tmax).toBe(118);
+  });
+
   it('mode-scheduled override compares hvac state, not temperature', async () => {
     const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const SC: any = {
