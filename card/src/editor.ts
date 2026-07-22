@@ -1,28 +1,55 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { HassLike } from './types';
+import type { HassLike, CardConfig, Schedule } from './types';
+import { listSchedules } from './api';
 
 @customElement('timeline-scheduler-card-editor')
 export class TimelineSchedulerCardEditor extends LitElement {
   @property({ attribute: false }) public hass?: HassLike;
-  @state() private _config: { schedule_id?: string; name?: string } = {};
-  public setConfig(config: { schedule_id?: string; name?: string }): void { this._config = { ...config }; }
-  private _change(field: string, ev: Event): void {
-    const value = (ev.target as HTMLInputElement).value;
+  @state() private _config: CardConfig = {};
+  @state() private _schedules?: Schedule[];
+
+  public setConfig(config: CardConfig): void { this._config = { ...config }; }
+
+  protected willUpdate(): void {
+    if (this.hass && this._schedules === undefined) {
+      this._schedules = [];
+      listSchedules(this.hass).then((s) => { this._schedules = s; }).catch(() => { this._schedules = []; });
+    }
+  }
+
+  private _set(field: keyof CardConfig, value: unknown): void {
     this._config = { ...this._config, [field]: value };
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
   }
+
   render() {
+    const schedules = this._schedules ?? [];
+    const scheduleSelector = {
+      select: {
+        mode: 'dropdown', custom_value: true,
+        options: schedules.map((s) => ({ value: s.id, label: s.name || s.id })),
+      },
+    };
+    const unitSelector = {
+      select: {
+        mode: 'dropdown',
+        options: [
+          { value: 'auto', label: 'Follow Home Assistant' },
+          { value: 'C', label: 'Celsius (°C)' },
+          { value: 'F', label: 'Fahrenheit (°F)' },
+        ],
+      },
+    };
     return html`<div class="f">
-      <label>Schedule id
-        <input .value=${this._config.schedule_id ?? ''} @input=${(e: Event) => this._change('schedule_id', e)} placeholder="bed" />
-      </label>
-      <label>Title (optional)
-        <input .value=${this._config.name ?? ''} @input=${(e: Event) => this._change('name', e)} />
-      </label>
+      <ha-selector .hass=${this.hass} .selector=${scheduleSelector} label="Schedule"
+        .value=${this._config.schedule_id ?? ''} @value-changed=${(e: any) => this._set('schedule_id', e.detail.value)}></ha-selector>
+      <ha-selector .hass=${this.hass} .selector=${unitSelector} label="Temperature unit"
+        .value=${this._config.unit ?? 'auto'} @value-changed=${(e: any) => this._set('unit', e.detail.value)}></ha-selector>
+      <ha-selector .hass=${this.hass} .selector=${{ text: {} }} label="Title (optional)"
+        .value=${this._config.name ?? ''} @value-changed=${(e: any) => this._set('name', e.detail.value)}></ha-selector>
     </div>`;
   }
-  static styles = css`.f{display:flex;flex-direction:column;gap:12px;padding:8px 0}
-    label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--secondary-text-color)}
-    input{padding:8px;border-radius:8px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit}`;
+
+  static styles = css`.f { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }`;
 }

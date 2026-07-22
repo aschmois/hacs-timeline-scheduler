@@ -22,19 +22,19 @@ async function mount(saved: any[]) {
 
 describe('editing', () => {
   beforeEach(() => (document.body.innerHTML = ''));
-  it('add setpoint marks dirty and enables save', async () => {
+  it('add setpoint marks dirty and there is no manual Save button (auto-save)', async () => {
     const saved: any[] = []; const el = await mount(saved);
     el._addSetpoint(); await el.updateComplete;
     expect(el._dirty).toBe(true);
-    const save = el.shadowRoot.querySelector('button.save');
-    expect(save.disabled).toBe(false);
+    expect(el.shadowRoot.querySelector('button.save')).toBeNull();
   });
-  it('save collapses per-day map to single-day transitions', async () => {
+  it('sync collapses per-day map to single-day transitions', async () => {
     const saved: any[] = []; const el = await mount(saved);
-    el._addSetpoint(); await el._save();
+    el._addSetpoint(); await el._sync();
     expect(saved.length).toBe(1);
     // original 1 (×7 days expanded) + the new one on the active day, all single-day
     expect(saved[0].transitions.every((t: any) => t.weekdays.length === 1)).toBe(true);
     expect(saved[0].transitions.length).toBe(8);
+    expect(el._dirty).toBe(false);
   });
 });

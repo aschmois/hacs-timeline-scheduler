@@ -27,7 +27,7 @@ describe('error handling', () => {
     } }, states: {} };
     await flush(el);
     el._addSetpoint(); await el.updateComplete;
-    await el._save();
+    await el._sync();
     expect(el._dirty).toBe(true);
     expect(el.shadowRoot.textContent).toContain('Save failed');
   });

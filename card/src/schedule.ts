@@ -2,7 +2,18 @@ import type { HassLike, Schedule, Transition, Weekday, SetVal } from './types';
 import { WEEKDAYS } from './types';
 
 const pad = (n: number) => String(n).padStart(2, '0');
+// 24h "HH:MM" — the storage/wire format (also used by collapseToTransitions).
 export const fmtMin = (m: number) => { m = ((Math.round(m) % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+// Human display: 12h AM/PM by default; 24h only if HA's locale is set to 24h.
+export function fmtClock(m: number, hass?: HassLike): string {
+  m = ((Math.round(m) % 1440) + 1440) % 1440;
+  const h24 = Math.floor(m / 60), mi = m % 60;
+  if (hass?.locale?.time_format === '24') return `${pad(h24)}:${pad(mi)}`;
+  const ap = h24 < 12 ? 'AM' : 'PM';
+  const h12 = h24 % 12 || 12;
+  return `${h12}:${pad(mi)} ${ap}`;
+}
+export const isTemp = (v: SetVal): v is number => typeof v === 'number';
 export function parseHHMM(s: string): number { const [h, mi] = s.split(':'); return Number(h) * 60 + Number(mi); }
 export function parseOffsetMin(s: string): number {
   let sign = 1, v = s.trim();
