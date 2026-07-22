@@ -111,6 +111,18 @@ async def test_ws_save_preserves_managed(hass, hass_ws_client):
     assert store.get("office").managed is True
 
 
+async def test_ws_delete_rejects_managed(hass, hass_ws_client):
+    """A managed schedule can't be deleted via WS (would orphan its subentry)."""
+    await _setup(hass)
+    store = hass.data[DOMAIN]["store"]
+    await store.async_upsert(Schedule.from_dict({**SAVE, "managed": True}))
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/delete", "id_": "office"})
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "managed_schedule"
+    assert store.get("office") is not None  # not removed
+
+
 async def test_ws_save_malformed(hass, hass_ws_client):
     await _setup(hass)
     client = await hass_ws_client(hass)

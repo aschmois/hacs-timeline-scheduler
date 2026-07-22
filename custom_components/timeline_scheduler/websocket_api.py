@@ -84,6 +84,16 @@ async def ws_save(hass: HomeAssistant, connection, msg) -> None:
 @websocket_api.async_response
 async def ws_delete(hass: HomeAssistant, connection, msg) -> None:
     data = hass.data[DOMAIN]
+    sch = data["store"].get(msg["id_"])
+    if sch is not None and sch.managed:
+        # Managed schedules are owned by a config subentry; deleting only the
+        # store row would orphan the subentry/device. Remove it from Devices
+        # & Services instead.
+        connection.send_error(
+            msg["id"], "managed_schedule",
+            "This schedule is managed as a device; remove it from "
+            "Settings > Devices & Services.")
+        return
     await data["manager"].async_teardown(msg["id_"])
     await data["store"].async_remove(msg["id_"])
     connection.send_result(msg["id"], {"id": msg["id_"], "removed": True})

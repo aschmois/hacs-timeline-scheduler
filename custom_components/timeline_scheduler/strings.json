@@ -41,7 +41,8 @@
         }
       },
       "abort": {
-        "reconfigure_successful": "Schedule updated."
+        "reconfigure_successful": "Schedule updated.",
+        "entry_not_loaded": "Timeline Scheduler isn't loaded. Restart Home Assistant or re-add the integration, then try again."
       }
     }
   },

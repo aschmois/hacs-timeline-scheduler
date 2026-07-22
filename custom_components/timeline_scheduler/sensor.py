@@ -45,6 +45,10 @@ class ScheduleNextChangeSensor(TimelineScheduleEntity, SensorEntity):
         self._attr_unique_id = f"{sid}_next_change"
 
     @property
+    def available(self) -> bool:
+        return self._manager.store.get(self._sid) is not None
+
+    @property
     def native_value(self) -> datetime | None:
         state = self._manager.state.get(self._sid) or {}
         return state.get("next_dt")

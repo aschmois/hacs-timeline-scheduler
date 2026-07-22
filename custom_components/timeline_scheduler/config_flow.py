@@ -79,6 +79,8 @@ class ScheduleSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Add a new schedule."""
+        if DOMAIN not in self.hass.data:
+            return self.async_abort(reason="entry_not_loaded")
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=_schedule_schema())
 
@@ -104,6 +106,8 @@ class ScheduleSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Edit an existing schedule's metadata (timeline is edited in the card)."""
+        if DOMAIN not in self.hass.data:
+            return self.async_abort(reason="entry_not_loaded")
         entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         sid = subentry.data["schedule_id"]

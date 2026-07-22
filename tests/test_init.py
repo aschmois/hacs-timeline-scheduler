@@ -1,11 +1,14 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.timeline_scheduler.const import DOMAIN
+from custom_components.timeline_scheduler.models import Schedule
 
 from .helpers import seed_store, setup_integration, setup_with_subentries
 
@@ -29,6 +32,16 @@ async def test_setup_and_upsert_service_applies(hass):
 
     assert hass.data[DOMAIN]["store"].get("bed") is not None
     assert any(c.data.get("temperature") == 80.0 for c in calls)
+
+
+async def test_remove_service_rejects_managed_schedule(hass):
+    await setup_integration(hass)
+    store = hass.data[DOMAIN]["store"]
+    await store.async_upsert(Schedule.from_dict(MANAGED_BED))
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN, "remove_schedule", {"id": "bed"}, blocking=True)
+    assert store.get("bed") is not None  # not removed
 
 
 async def test_subentry_creates_device_and_removal_prunes_schedule(hass, hass_storage):

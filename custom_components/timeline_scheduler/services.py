@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
@@ -39,6 +40,13 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _remove(call: ServiceCall) -> None:
         data = hass.data[DOMAIN]
         sid = call.data["id"]
+        existing = data["store"].get(sid)
+        if existing is not None and existing.managed:
+            # Owned by a config subentry — deleting only the store row would
+            # orphan the subentry/device.
+            raise ServiceValidationError(
+                f"Schedule '{sid}' is managed as a device; remove it from "
+                "Settings > Devices & Services.")
         await data["manager"].async_teardown(sid)
         await data["store"].async_remove(sid)
 
