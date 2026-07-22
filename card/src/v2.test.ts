@@ -71,6 +71,17 @@ describe('card v2', () => {
     expect(el._unit()).toBe('C');
   });
 
+  it('lists setpoints ordered by resolved time', async () => {
+    const el = await mount();
+    el._day = 'mon';
+    el._perDay.mon = [
+      { id: 'a', kind: 'time', atMin: 23 * 60, value: 70 },
+      { id: 'b', kind: 'time', atMin: 6 * 60, value: 72 },
+      { id: 'c', kind: 'time', atMin: 12 * 60, value: 68 },
+    ];
+    expect(el._sortedDay().map((e: any) => e.id)).toEqual(['b', 'c', 'a']);
+  });
+
   it('unlocked + selected mode point shows a mode picker built from the device hvac_modes', async () => {
     const el = await mount();
     el._toggleLock();

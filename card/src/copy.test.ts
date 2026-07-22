@@ -19,6 +19,16 @@ describe('copy day + editor', () => {
     expect(el._perDay.wed[0].id).not.toBe(el._perDay.mon[0].id);
     expect(el._dirty).toBe(true);
   });
+  it('copies the active day onto ALL other days with fresh ids', async () => {
+    const el = await mount(); el._day = 'mon'; await el.updateComplete;
+    el._copyDayToAll(); await el.updateComplete;
+    for (const d of ['tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+      expect(el._perDay[d].length).toBe(1);
+      expect(el._perDay[d][0].id).not.toBe(el._perDay.mon[0].id);
+    }
+    expect(el._perDay.mon.length).toBe(1); // active day unchanged
+    expect(el._dirty).toBe(true);
+  });
   it('exposes a config element and stub config', async () => {
     const CardCls = customElements.get('timeline-scheduler-card') as any;
     const stub = await CardCls.getStubConfig({ connection: { sendMessagePromise: async () => ({ schedules: [SCH] }) } });

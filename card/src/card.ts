@@ -113,6 +113,17 @@ export class TimelineSchedulerCard extends LitElement {
 
   protected _activeDay(): DayEntry[] { return this._perDay ? this._perDay[this._day] : []; }
   protected _selEntry(): DayEntry | undefined { return this._activeDay().find((e) => e.id === this._sel); }
+  /** Active day's setpoints ordered by resolved time (unresolvable anchors last). */
+  protected _sortedDay(): DayEntry[] {
+    const entries = this._activeDay();
+    if (!this.hass) return entries;
+    return [...entries].sort((a, b) => {
+      const ma = resolveMin(a, this.hass!), mb = resolveMin(b, this.hass!);
+      if (ma === null) return mb === null ? 0 : 1;
+      if (mb === null) return -1;
+      return ma - mb;
+    });
+  }
 
   // ---- timeline rendering ---------------------------------------------------
   protected _renderTimeline(svg: SVGSVGElement): void {
@@ -158,7 +169,8 @@ export class TimelineSchedulerCard extends LitElement {
       grp.appendChild(el('circle', { class: 'hit', cx, cy, r: 18 }));
       if (e.kind === 'anchor') grp.appendChild(el('circle', { class: 'ring', cx, cy, r: 11 }));
       grp.appendChild(el('circle', { class: 'body', cx, cy, r: 7, fill: temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)' }));
-      const lbl = el('text', { class: 'vlabel', x: cx, y: cy - 13, 'text-anchor': 'middle' });
+      const ly = cy - 12 < plot.T + 8 ? cy + 20 : cy - 12; // flip below when near the top edge
+      const lbl = el('text', { class: 'vlabel', x: cx, y: ly, 'text-anchor': 'middle' });
       lbl.textContent = this._fmtVal(e.value); grp.appendChild(lbl);
       svg.appendChild(grp);
       this._wireDot(grp as SVGGElement, e, scale);
@@ -235,6 +247,14 @@ export class TimelineSchedulerCard extends LitElement {
     this._perDay[target] = this._activeDay().map((e) => ({ ...e, id: 'c' + Math.random().toString(36).slice(2) }));
     this._scheduleSync();
   }
+  protected _copyDayToAll(): void {
+    if (!this._perDay) return;
+    for (const d of WEEKDAYS) {
+      if (d === this._day) continue;
+      this._perDay[d] = this._activeDay().map((e) => ({ ...e, id: 'c' + Math.random().toString(36).slice(2) }));
+    }
+    this._scheduleSync();
+  }
   protected _toggleLock(): void { this._locked = !this._locked; if (this._locked) this._sel = null; }
 
   static async getConfigElement() { await import('./editor'); return document.createElement('timeline-scheduler-card-editor'); }
@@ -276,9 +296,9 @@ export class TimelineSchedulerCard extends LitElement {
         <div class="days">
           ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; }}>${DAY_LABEL[d]}</button>`)}
         </div>
-        <svg class="tl" viewBox="0 0 1000 288" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
+        <svg class="tl" viewBox="0 0 500 262" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
         <div class="list">
-          ${this._activeDay().map((e) => this._row(e, scale))}
+          ${this._sortedDay().map((e) => this._row(e, scale))}
         </div>
         ${this._detail()}
         ${this._footer()}
@@ -380,6 +400,7 @@ export class TimelineSchedulerCard extends LitElement {
     if (this._locked) return nothing;
     return html`<div class="foot">
       <button class="act" @click=${() => this._addSetpoint()}>＋ Add setpoint</button>
+      <button class="act" title="Copy this day's setpoints to every other day" @click=${() => this._copyDayToAll()}>Copy to all days</button>
       <select class="act" @change=${(e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v) { this._copyDayTo(v as Weekday); (e.target as HTMLSelectElement).value = ''; } }}>
         <option value="">Copy day to…</option>
         ${WEEKDAYS.filter((d) => d !== this._day).map((d) => html`<option value=${d}>${DAY_LABEL[d]}</option>`)}
@@ -405,12 +426,12 @@ export class TimelineSchedulerCard extends LitElement {
     .day[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color); border-color: var(--primary-color); }
     svg.tl { display: block; width: 100%; height: auto; touch-action: none; }
     .grid { stroke: var(--divider-color); stroke-width: 1; opacity: .5; }
-    .axis { fill: var(--secondary-text-color); font-size: 11px; font-family: var(--code-font-family, monospace); }
+    .axis { fill: var(--secondary-text-color); font-size: 12px; font-family: var(--code-font-family, monospace); }
     .segline { stroke-width: 2.5; stroke-linecap: round; }
     .seg-mode { fill: var(--tsc-mode); opacity: .3; }
     .nowline { stroke: var(--secondary-text-color); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
-    .vlabel { fill: var(--primary-text-color); font-size: 13px; font-weight: 700; paint-order: stroke;
-      stroke: var(--card-background-color); stroke-width: 3px; stroke-linejoin: round; }
+    .vlabel { fill: var(--primary-text-color); font-size: 14px; font-weight: 700; paint-order: stroke;
+      stroke: var(--card-background-color); stroke-width: 3.5px; stroke-linejoin: round; }
     .dot { cursor: grab; } .dot:active { cursor: grabbing; } .dot.ro { cursor: pointer; }
     .dot .hit { fill: transparent; } .dot .body { stroke: var(--card-background-color); stroke-width: 2; }
     .dot.sel .body { stroke: var(--primary-text-color); }

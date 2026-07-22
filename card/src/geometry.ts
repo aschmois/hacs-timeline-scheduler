@@ -1,8 +1,9 @@
 import type { TempUnit } from './types';
 
-// Plot geometry in viewBox units. The SVG is drawn with a uniform aspect ratio
-// (no non-uniform stretching) so text stays crisp.
-export const plot = { L: 54, R: 980, T: 22, B: 196, mode: 236, axis: 270 };
+// Plot geometry in viewBox units. The viewBox is kept close to the real render
+// width (~500) so 1 unit ≈ 1 CSS px — text and dots don't get scaled down (a
+// 1000-wide viewBox halved everything on a single-column card).
+export const plot = { L: 38, R: 488, T: 16, B: 186, mode: 222, axis: 248 };
 const W = plot.R - plot.L, H = plot.B - plot.T;
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
