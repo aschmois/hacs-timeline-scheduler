@@ -21,6 +21,11 @@ UPSERT_SCHEMA = vol.Schema({
 
 ID_SCHEMA = vol.Schema({vol.Required("id"): cv.string})
 
+OVERRIDE_SCHEMA = vol.Schema({
+    vol.Required("id"): cv.string,
+    vol.Required("value"): vol.Any(float, int, str),
+})
+
 
 def async_register_services(hass: HomeAssistant) -> None:
     # Handlers resolve the store/manager from hass.data at call time, so these
@@ -59,7 +64,15 @@ def async_register_services(hass: HomeAssistant) -> None:
         await data["store"].async_load()
         await data["manager"].async_start()
 
+    async def _override(call: ServiceCall) -> None:
+        await hass.data[DOMAIN]["manager"].async_set_override(call.data["id"], call.data["value"])
+
+    async def _clear_override(call: ServiceCall) -> None:
+        await hass.data[DOMAIN]["manager"].async_clear_override(call.data["id"])
+
     hass.services.async_register(DOMAIN, "upsert_schedule", _upsert, schema=UPSERT_SCHEMA)
     hass.services.async_register(DOMAIN, "remove_schedule", _remove, schema=ID_SCHEMA)
     hass.services.async_register(DOMAIN, "apply_now", _apply_now, schema=ID_SCHEMA)
     hass.services.async_register(DOMAIN, "reload", _reload)
+    hass.services.async_register(DOMAIN, "override", _override, schema=OVERRIDE_SCHEMA)
+    hass.services.async_register(DOMAIN, "clear_override", _clear_override, schema=ID_SCHEMA)

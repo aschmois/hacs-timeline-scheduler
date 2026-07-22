@@ -82,6 +82,22 @@ describe('card v2', () => {
     expect(el._sortedDay().map((e: any) => e.id)).toEqual(['b', 'c', 'a']);
   });
 
+  it('override / resume send the right WS commands', async () => {
+    const sent: any[] = [];
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    el.hass = {
+      connection: { sendMessagePromise: async (m: any) => { sent.push(m); return m.type === 'timeline_scheduler/get' ? SCH : { schedules: [SCH] }; } },
+      states: { 'climate.bed': { state: 'heat', attributes: { hvac_modes: ['off', 'auto', 'heat', 'cool'] } } },
+      config: { unit_system: { temperature: '°F' } },
+    };
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    await el._doOverride(66);
+    expect(sent.some((m) => m.type === 'timeline_scheduler/override' && m.value === 66 && m.id_ === 'bed')).toBe(true);
+    await el._clearOverride();
+    expect(sent.some((m) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
+  });
+
   it('unlocked + selected mode point shows a mode picker built from the device hvac_modes', async () => {
     const el = await mount();
     el._toggleLock();

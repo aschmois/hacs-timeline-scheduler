@@ -2,7 +2,7 @@ import { LitElement, html, css, PropertyValues, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule, saveSchedule, listSchedules } from './api';
+import { getSchedule, saveSchedule, listSchedules, setOverride, clearOverride } from './api';
 import {
   expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM, isTemp,
   collapseToTransitions, DayEntry,
@@ -37,6 +37,7 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _dirty = false;
   @state() protected _saving = false;
   @state() protected _error?: string;
+  @state() protected _ovInput = '';
   private _loadedFor?: string;
   private _saveTimer?: ReturnType<typeof setTimeout>;
   private _editSeq = 0;
@@ -256,6 +257,20 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _toggleLock(): void { this._locked = !this._locked; if (this._locked) this._sel = null; }
 
+  protected _deviceId(): string | undefined {
+    const sid = this._config?.schedule_id;
+    if (!sid || !this.hass?.devices) return undefined;
+    const dev = Object.values(this.hass.devices).find((d) =>
+      (d.identifiers || []).some((idf) => idf[0] === 'timeline_scheduler' && idf[1] === sid));
+    return dev?.id;
+  }
+  protected _openDevice(): void {
+    const id = this._deviceId();
+    if (!id) return;
+    history.pushState(null, '', `/config/devices/device/${id}`);
+    window.dispatchEvent(new CustomEvent('location-changed', { detail: { replace: false }, bubbles: true, composed: true }));
+  }
+
   static async getConfigElement() { await import('./editor'); return document.createElement('timeline-scheduler-card-editor'); }
   static async getStubConfig(hass: HassLike) {
     try { const list = await listSchedules(hass); if (list.length) return { schedule_id: list[0].id }; } catch { /* none */ }
@@ -278,9 +293,9 @@ export class TimelineSchedulerCard extends LitElement {
     return html`
       <ha-card>
         <div class="head">
-          <div class="title">
+          <div class="title ${this._deviceId() ? 'link' : ''}" role="button" tabindex="0"
+            title=${this._deviceId() ? 'Open device' : ''} @click=${() => this._openDevice()}>
             <h2>${this._config.name ?? s?.name ?? 'Schedule'}</h2>
-            <div class="target">${s?.target.entity_id ?? this._config.schedule_id ?? ''}</div>
           </div>
           <div class="now"><div class="cur">${st.cur}</div><div class="nxt">${st.next}</div></div>
           <button class="lock" title=${this._locked ? 'Locked — tap to edit' : 'Unlocked — tap to lock'}
@@ -300,8 +315,37 @@ export class TimelineSchedulerCard extends LitElement {
           ${this._sortedDay().map((e) => this._row(e, scale))}
         </div>
         ${this._detail()}
+        ${this._locked ? nothing : this._overrideRow()}
         ${this._footer()}
       </ha-card>`;
+  }
+
+  // ---- manual override ------------------------------------------------------
+  protected _overrideRow() {
+    const onoff = this._applyKind() === 'onoff';
+    return html`<div class="override">
+      <span class="olabel">Override now</span>
+      ${onoff
+        ? html`<button class="obtn" @click=${() => this._doOverride('on')}>On</button>
+               <button class="obtn" @click=${() => this._doOverride('off')}>Off</button>`
+        : html`<input class="num" type="number" .value=${this._ovInput} placeholder="value"
+                 @input=${(e: Event) => { this._ovInput = (e.target as HTMLInputElement).value; }} />
+               <button class="obtn" ?disabled=${this._ovInput === ''}
+                 @click=${() => this._doOverride(Number(this._ovInput))}>Hold until next change</button>`}
+      <button class="obtn clr" @click=${() => this._clearOverride()}>Resume schedule</button>
+    </div>`;
+  }
+  protected async _doOverride(value: SetVal): Promise<void> {
+    if (!this.hass || !this._config?.schedule_id) return;
+    try { await setOverride(this.hass, this._config.schedule_id, value); this._error = undefined; }
+    catch (err) { this._error = `Override failed: ${err instanceof Error ? err.message : String(err)}`; }
+    this.requestUpdate();
+  }
+  protected async _clearOverride(): Promise<void> {
+    if (!this.hass || !this._config?.schedule_id) return;
+    try { await clearOverride(this.hass, this._config.schedule_id); this._error = undefined; }
+    catch (err) { this._error = `Resume failed: ${err instanceof Error ? err.message : String(err)}`; }
+    this.requestUpdate();
   }
 
   protected _row(e: DayEntry, scale: Scale) {
@@ -410,8 +454,10 @@ export class TimelineSchedulerCard extends LitElement {
   static styles = css`
     :host { display: block; --tsc-mode: #8b5cf6; }
     .head { display: flex; gap: 16px; padding: 16px 16px 6px; align-items: flex-start; }
+    .title { border-radius: 8px; }
+    .title.link { cursor: pointer; }
+    .title.link:hover h2 { color: var(--primary-color); }
     .title h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--primary-text-color); }
-    .target { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; font-family: var(--code-font-family, monospace); }
     .now { margin-left: auto; text-align: right; }
     .now .cur { font-size: 22px; font-weight: 700; color: var(--primary-text-color); }
     .now .nxt { font-size: 12px; color: var(--secondary-text-color); }
@@ -455,6 +501,13 @@ export class TimelineSchedulerCard extends LitElement {
     input[type=time] { font: inherit; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
     ha-entity-picker { flex: 1; }
     .hint { font-size: 12px; color: var(--secondary-text-color); }
+    .override { display: flex; gap: 8px; align-items: center; margin: 0 12px 8px; padding: 8px 10px;
+      border: 1px dashed var(--divider-color); border-radius: 10px; }
+    .olabel { font-size: 12px; color: var(--secondary-text-color); }
+    .obtn { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+    .obtn.clr { margin-left: auto; }
+    .obtn[disabled] { opacity: .5; cursor: default; }
     .foot { display: flex; gap: 10px; padding: 10px 16px 16px; border-top: 1px solid var(--divider-color); }
     button.act { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 9px 13px; cursor: pointer;
       border: 1px solid var(--divider-color); background: var(--secondary-background-color); color: var(--primary-text-color); }

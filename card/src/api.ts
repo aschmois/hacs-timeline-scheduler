@@ -16,3 +16,9 @@ export const saveSchedule = (hass: HassLike, schedule: Schedule): Promise<Schedu
 
 export const deleteSchedule = (hass: HassLike, id: string): Promise<{ id: string; removed: boolean }> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/delete', id_: id });
+
+export const setOverride = (hass: HassLike, id: string, value: number | string): Promise<unknown> =>
+  hass.connection.sendMessagePromise({ type: 'timeline_scheduler/override', id_: id, value });
+
+export const clearOverride = (hass: HassLike, id: string): Promise<unknown> =>
+  hass.connection.sendMessagePromise({ type: 'timeline_scheduler/clear_override', id_: id });

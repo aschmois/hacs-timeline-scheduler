@@ -10,11 +10,13 @@ export interface Schedule {
   default?: { value: SetVal | null } | null; transitions: Transition[];
 }
 export interface HassEntity { state: string; attributes?: Record<string, any>; }
+export interface HassDevice { id: string; identifiers: [string, string][]; }
 export interface HassLike {
   connection: { sendMessagePromise<T = any>(msg: Record<string, unknown>): Promise<T> };
   states: Record<string, HassEntity | undefined>;
   config?: { unit_system?: { temperature?: string } };
   locale?: { time_format?: string };
+  devices?: Record<string, HassDevice>;
 }
 export type TempUnit = 'C' | 'F';
 export interface CardConfig { schedule_id?: string; name?: string; unit?: 'auto' | 'C' | 'F'; }

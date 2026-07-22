@@ -123,6 +123,28 @@ async def test_ws_delete_rejects_managed(hass, hass_ws_client):
     assert store.get("office") is not None  # not removed
 
 
+async def test_ws_override_and_clear(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/override", "id_": "bed", "value": 66})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["overridden"] is True
+    assert hass.data[DOMAIN]["manager"].state["bed"]["overridden"] is True
+
+    await client.send_json({"id": 2, "type": "timeline_scheduler/clear_override", "id_": "bed"})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["overridden"] is False
+
+
+async def test_ws_override_missing(hass, hass_ws_client):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/override", "id_": "nope", "value": 66})
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "not_found"
+
+
 async def test_ws_save_malformed(hass, hass_ws_client):
     await _setup(hass)
     client = await hass_ws_client(hass)

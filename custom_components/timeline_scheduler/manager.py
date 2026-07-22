@@ -28,12 +28,29 @@ class TimelineManager:
         self._watchers: dict[str, list] = {}   # sid -> cancel callbacks (anchors)
         self._timers: dict[str, callable] = {}  # sid -> cancel callback (next timer)
         self._global: list = []
-        # sid -> {current, next_dt, next_target, active_id}; read by the switch/
-        # sensor entities and refreshed by async_refresh / cleared by teardown.
+        # sid -> {current, next_dt, next_target, active_id, overridden}; read by
+        # the switch/sensor entities, refreshed by async_refresh / cleared by teardown.
         self.state: dict[str, dict] = {}
+        # sid -> {value, until}: a manual override that holds `value` until the
+        # next scheduled transition (`until`), then auto-clears.
+        self._override: dict[str, dict] = {}
 
     def _dispatch(self, sid: str) -> None:
         async_dispatcher_send(self.hass, schedule_updated_signal(sid))
+
+    async def async_set_override(self, sid: str, value) -> None:
+        """Hold `value` now, until the schedule's next transition."""
+        schedule = self.store.get(sid)
+        if schedule is None:
+            return
+        _active, nxt = active_and_next(schedule, dt_util.now(), self._anchor_lookup)
+        self._override[sid] = {"value": value, "until": nxt.when_dt if nxt is not None else None}
+        await self.async_refresh(sid)
+
+    async def async_clear_override(self, sid: str) -> None:
+        """Drop any manual override and re-apply the schedule."""
+        if self._override.pop(sid, None) is not None:
+            await self.async_refresh(sid)
 
     def _anchor_lookup(self, entity_id: str) -> time | None:
         st = self.hass.states.get(entity_id)
@@ -97,11 +114,21 @@ class TimelineManager:
             value = active.transition.value
         else:
             value = schedule.default.get("value") if schedule.default else None
+        # A manual override takes precedence until its `until` boundary, then expires.
+        overridden = False
+        ov = self._override.get(sid)
+        if ov is not None:
+            if ov["until"] is None or now < ov["until"]:
+                value = ov["value"]
+                overridden = True
+            else:
+                self._override.pop(sid, None)
         self.state[sid] = {
             "current": value,
             "next_dt": nxt.when_dt if nxt is not None else None,
             "next_target": nxt.transition.value if nxt is not None else None,
             "active_id": active.transition.id if active is not None else None,
+            "overridden": overridden,
         }
         self._dispatch(sid)
         if value is not None:
@@ -132,6 +159,7 @@ class TimelineManager:
         self._cancel_timer(sid)
         for cancel in self._watchers.pop(sid, []):
             cancel()
+        self._override.pop(sid, None)
         # Clear live state (e.g. schedule disabled/removed) so entities reflect it.
         if self.state.pop(sid, None) is not None:
             self._dispatch(sid)

@@ -99,6 +99,33 @@ async def ws_delete(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], {"id": msg["id_"], "removed": True})
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "timeline_scheduler/override",
+    vol.Required("id_"): str,
+    vol.Required("value"): vol.Any(float, int, str),
+})
+@websocket_api.async_response
+async def ws_override(hass: HomeAssistant, connection, msg) -> None:
+    data = hass.data[DOMAIN]
+    if data["store"].get(msg["id_"]) is None:
+        connection.send_error(msg["id"], "not_found", f"No schedule '{msg['id_']}'")
+        return
+    await data["manager"].async_set_override(msg["id_"], msg["value"])
+    connection.send_result(msg["id"], {"id": msg["id_"], "overridden": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "timeline_scheduler/clear_override",
+    vol.Required("id_"): str,
+})
+@websocket_api.async_response
+async def ws_clear_override(hass: HomeAssistant, connection, msg) -> None:
+    await hass.data[DOMAIN]["manager"].async_clear_override(msg["id_"])
+    connection.send_result(msg["id"], {"id": msg["id_"], "overridden": False})
+
+
 @callback
 def async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list)
@@ -106,3 +133,5 @@ def async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_preview)
     websocket_api.async_register_command(hass, ws_save)
     websocket_api.async_register_command(hass, ws_delete)
+    websocket_api.async_register_command(hass, ws_override)
+    websocket_api.async_register_command(hass, ws_clear_override)

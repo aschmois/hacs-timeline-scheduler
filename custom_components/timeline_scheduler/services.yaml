@@ -46,5 +46,25 @@ apply_now:
       required: true
       selector:
         text:
+override:
+  name: Override current value
+  description: Hold a value now until the schedule's next transition.
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+    value:
+      required: true
+      example: "72"
+      selector:
+        text:
+clear_override:
+  name: Clear override
+  fields:
+    id:
+      required: true
+      selector:
+        text:
 reload:
   name: Reload schedules from storage

@@ -73,6 +73,36 @@ async def test_anchor_change_triggers_reapply(hass):
     await mgr.async_teardown("bed")
 
 
+async def test_override_applies_then_clears_back_to_schedule(hass):
+    calls = async_mock_service(hass, "climate", "set_temperature")
+    mgr = await _make(hass, _bed())  # a@20:00->80, b@22:00->70
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_set_override("bed", 66)
+        await hass.async_block_till_done()
+    assert calls[-1].data["temperature"] == 66.0
+    assert mgr.state["bed"]["current"] == 66 and mgr.state["bed"]["overridden"] is True
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_clear_override("bed")
+        await hass.async_block_till_done()
+    assert calls[-1].data["temperature"] == 80.0  # back to the active setpoint
+    assert mgr.state["bed"]["overridden"] is False
+    await mgr.async_teardown("bed")
+
+
+async def test_override_expires_at_next_transition(hass):
+    async_mock_service(hass, "climate", "set_temperature")
+    mgr = await _make(hass, _bed())
+    with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
+        await mgr.async_set_override("bed", 66)  # holds until 22:00
+        await hass.async_block_till_done()
+    with freeze_time(datetime(2026, 1, 5, 22, 30, tzinfo=TZ)):
+        await mgr.async_refresh("bed")
+        await hass.async_block_till_done()
+    assert mgr.state["bed"]["overridden"] is False
+    assert mgr.state["bed"]["current"] == 70  # 22:00 setpoint now active
+    await mgr.async_teardown("bed")
+
+
 async def test_disabled_schedule_arms_nothing(hass):
     calls = async_mock_service(hass, "climate", "set_temperature")
     sch = _bed()
