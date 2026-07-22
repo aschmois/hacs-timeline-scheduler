@@ -38,7 +38,7 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _saving = false;
   @state() protected _error?: string;
   @state() protected _ovInput = '';
-  @state() protected _hist?: { actual: { m: number; t: number }[]; target: { m: number; t: number }[] };
+  @state() protected _hist?: { actual: { m: number; t: number }[]; targetRuns: { m: number; t: number }[][] };
   private _histFor?: string;
   private _loadedFor?: string;
   private _saveTimer?: ReturnType<typeof setTimeout>;
@@ -79,15 +79,21 @@ export class TimelineSchedulerCard extends LitElement {
     void fetchHistory(this.hass!, entity, start.toISOString(), new Date().toISOString())
       .then((rows) => {
         const actual: { m: number; t: number }[] = [];
-        const target: { m: number; t: number }[] = [];
-        for (const r of rows) {
+        const targetRuns: { m: number; t: number }[][] = [];
+        let run: { m: number; t: number }[] = [];
+        for (const r of [...rows].sort((a, b) => a.lu - b.lu)) {
           const a = r.a || {};
-          const m = ((): number => { const d = new Date(r.lu * 1000); return d.getHours() * 60 + d.getMinutes(); })();
+          const d = new Date(r.lu * 1000); const m = d.getHours() * 60 + d.getMinutes();
           const ct = Number(a.current_temperature); if (Number.isFinite(ct)) actual.push({ m, t: ct });
-          const tt = Number(a.temperature); if (Number.isFinite(tt)) target.push({ m, t: tt });
+          // The `temperature` attribute persists when the unit is off — only
+          // treat it as a real target while the unit is in an active mode.
+          const off = r.s === 'off' || r.s === 'unavailable' || r.s === 'unknown';
+          const tt = Number(a.temperature);
+          if (!off && Number.isFinite(tt)) run.push({ m, t: tt });
+          else if (run.length) { targetRuns.push(run); run = []; }
         }
-        actual.sort((x, y) => x.m - y.m); target.sort((x, y) => x.m - y.m);
-        this._hist = { actual, target };
+        if (run.length) targetRuns.push(run);
+        this._hist = { actual, targetRuns };
         this.requestUpdate();
       })
       .catch(() => { this._hist = undefined; });
@@ -205,11 +211,13 @@ export class TimelineSchedulerCard extends LitElement {
         g('rect', { x: x0, y: plot.mode - 6, width: w, height: 12, rx: 3, class: 'seg-mode' });
       }
     }
-    // historical overlay: actual temperature + what it was actually set to (today only)
+    // historical overlay: actual temperature + what it was actually set to (today only).
+    // The set-to line breaks while the unit was off (no active target).
     if (this._hist && this._day === todayKey()) {
-      if (this._hist.target.length) {
+      for (const runPts of this._hist.targetRuns) {
+        if (runPts.length < 2) continue;
         const step: string[] = []; let prev: { m: number; t: number } | null = null;
-        for (const p of this._hist.target) {
+        for (const p of runPts) {
           if (prev) step.push(`${xOfMin(p.m)},${yOfTemp(prev.t, scale)}`);
           step.push(`${xOfMin(p.m)},${yOfTemp(p.t, scale)}`); prev = p;
         }

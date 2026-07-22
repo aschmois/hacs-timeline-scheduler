@@ -99,10 +99,35 @@ describe('card v2', () => {
     };
     for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
     expect(el._hist.actual.length).toBe(2);
-    expect(el._hist.target.length).toBe(2);
+    expect(el._hist.targetRuns.length).toBe(1);
+    expect(el._hist.targetRuns[0].length).toBe(2);
     expect(el.shadowRoot.querySelector('polyline.hist-actual')).toBeTruthy();
     expect(el.shadowRoot.querySelector('polyline.hist-target')).toBeTruthy();
     expect(el.shadowRoot.querySelector('.legend')).toBeTruthy();
+  });
+
+  it('breaks the set-to history line while the climate was off (no stale target)', async () => {
+    const at = (h: number) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.getTime() / 1000; };
+    const hist: any = { 'climate.bed': [
+      { s: 'heat', a: { current_temperature: 68, temperature: 72 }, lu: at(6) },
+      { s: 'heat', a: { current_temperature: 69, temperature: 72 }, lu: at(7) },
+      { s: 'off', a: { current_temperature: 70, temperature: 72 }, lu: at(9) }, // off but temperature still 72
+      { s: 'heat', a: { current_temperature: 71, temperature: 74 }, lu: at(12) },
+      { s: 'heat', a: { current_temperature: 72, temperature: 74 }, lu: at(13) },
+    ] };
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    el.hass = {
+      connection: { sendMessagePromise: async (m: any) =>
+        (m.type === 'history/history_during_period' ? hist
+          : m.type === 'timeline_scheduler/get' ? SCH : { schedules: [SCH] }) },
+      states: { 'climate.bed': { state: 'heat', attributes: { hvac_modes: ['off', 'auto', 'heat', 'cool'], current_temperature: 72, temperature: 74 } } },
+      config: { unit_system: { temperature: '°F' } },
+    };
+    for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el._hist.targetRuns.length).toBe(2); // off splits the two active runs
+    expect(el.shadowRoot.querySelectorAll('polyline.hist-target').length).toBe(2);
+    expect(el._hist.actual.length).toBe(5); // actual measurement stays continuous
   });
 
   it('shows an Override badge + Resume when the target diverges from the scheduled value', async () => {

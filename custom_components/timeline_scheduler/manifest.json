@@ -1,7 +1,7 @@
 {
   "domain": "timeline_scheduler",
   "name": "Timeline Scheduler",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "documentation": "https://github.com/aschmois/hacs-timeline-scheduler",
   "issue_tracker": "https://github.com/aschmois/hacs-timeline-scheduler/issues",
   "codeowners": ["@aschmois"],
