@@ -103,8 +103,76 @@ async def _async_register_platform(hass: HomeAssistant) -> None:
             card_url = f"{CARD_URL}?v={integration.version}"
         except Exception:  # noqa: BLE001 - fall back to the bare URL
             card_url = CARD_URL
-        add_extra_js_url(hass, card_url)
+        await _async_register_card(hass, card_url)
     else:
         _LOGGER.warning(
             "Timeline Scheduler card found but hass.http is unavailable; card not served"
         )
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the Lovelace resource we registered when the integration is removed."""
+    resources = _lovelace_storage_resources(hass)
+    if resources is None:
+        return
+    try:
+        await resources.async_get_info()  # ensure the collection is loaded
+        for item in list(resources.async_items()):
+            if str(item.get("url", "")).split("?")[0] == CARD_URL:
+                await resources.async_delete_item(item["id"])
+    except Exception as err:  # noqa: BLE001 - best-effort cleanup
+        _LOGGER.debug("Timeline Scheduler: could not remove card resource: %s", err)
+
+
+async def _async_register_card(hass: HomeAssistant, card_url: str) -> None:
+    """Make the card load on every dashboard.
+
+    Prefer registering it as a Lovelace *resource* (storage mode): the frontend
+    loads resources at runtime from the resource list, exactly like HACS
+    frontend plugins, so the card survives the companion app's precached
+    app-shell. `add_extra_js_url` — which only injects the module into the
+    server-rendered index — is a fallback for when the storage resource
+    collection isn't available (YAML resource mode, or Lovelace not set up).
+    """
+    resources = _lovelace_storage_resources(hass)
+    if resources is not None:
+        try:
+            await _async_upsert_card_resource(resources, card_url)
+            return
+        except Exception as err:  # noqa: BLE001 - degrade to the index injection
+            _LOGGER.warning(
+                "Timeline Scheduler: could not register the card as a Lovelace "
+                "resource (%s); falling back to a frontend extra module URL",
+                err,
+            )
+    add_extra_js_url(hass, card_url)
+
+
+def _lovelace_storage_resources(hass: HomeAssistant):
+    """Return the storage-mode Lovelace resource collection, or None."""
+    try:
+        from homeassistant.components.lovelace.const import LOVELACE_DATA
+    except ImportError:
+        return None
+    lovelace = hass.data.get(LOVELACE_DATA)
+    if lovelace is None or getattr(lovelace, "resource_mode", None) != "storage":
+        return None
+    return getattr(lovelace, "resources", None)
+
+
+async def _async_upsert_card_resource(resources, card_url: str) -> None:
+    """Create or version-bump our single card resource (dedupe by base URL)."""
+    await resources.async_get_info()  # ensures the collection is loaded
+    base = card_url.split("?")[0]
+    existing = next(
+        (
+            item
+            for item in resources.async_items()
+            if str(item.get("url", "")).split("?")[0] == base
+        ),
+        None,
+    )
+    if existing is None:
+        await resources.async_create_item({"res_type": "module", "url": card_url})
+    elif existing.get("url") != card_url:
+        await resources.async_update_item(existing["id"], {"url": card_url})
