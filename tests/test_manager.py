@@ -11,16 +11,24 @@ from custom_components.timeline_scheduler.store import ScheduleStore
 TZ = ZoneInfo("America/New_York")
 
 
+def _t(temp):
+    """A temperature-only climate setpoint value."""
+    return {"mode": None, "temp": temp}
+
+
 def _bed():
     return Schedule.from_dict({
         "id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
-        "apply": "climate_temperature", "transitions": [
-            {"id": "a", "when": {"type": "time", "at": "20:00"}, "value": 80},
-            {"id": "b", "when": {"type": "time", "at": "22:00"}, "value": 70}]})
+        "apply": "climate_temperature", "on_mode": "heat", "transitions": [
+            {"id": "a", "when": {"type": "time", "at": "20:00"}, "value": _t(80)},
+            {"id": "b", "when": {"type": "time", "at": "22:00"}, "value": _t(70)}]})
 
 
 async def _make(hass, schedule):
     await hass.config.async_set_time_zone("America/New_York")
+    # The device is already in on_mode ("heat") so a temp-only setpoint only
+    # sends set_temperature (no redundant set_hvac_mode).
+    hass.states.async_set("climate.bed", "heat", {"hvac_modes": ["off", "heat"]})
     store = ScheduleStore(hass)
     await store.async_load()
     await store.async_upsert(schedule)
@@ -47,9 +55,9 @@ async def test_refresh_records_state_and_teardown_clears_it(hass):
         await mgr.async_refresh("bed")
         await hass.async_block_till_done()
     st = mgr.state["bed"]
-    assert st["current"] == 80
+    assert st["current"] == _t(80)
     assert st["active_id"] == "a"
-    assert st["next_target"] == 70
+    assert st["next_target"] == _t(70)
     assert st["next_dt"].hour == 22
     await mgr.async_teardown("bed")
     assert "bed" not in mgr.state
@@ -59,9 +67,9 @@ async def test_anchor_change_triggers_reapply(hass):
     calls = async_mock_service(hass, "climate", "set_temperature")
     sch = Schedule.from_dict({
         "id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
-        "apply": "climate_temperature", "transitions": [
+        "apply": "climate_temperature", "on_mode": "heat", "transitions": [
             {"id": "pre", "when": {"type": "anchor",
-             "entity": "input_datetime.wakeup_time", "offset": "-00:30"}, "value": 95}]})
+             "entity": "input_datetime.wakeup_time", "offset": "-00:30"}, "value": _t(95)}]})
     mgr = await _make(hass, sch)
     with freeze_time(datetime(2026, 1, 5, 6, 15, tzinfo=TZ)):
         hass.states.async_set("input_datetime.wakeup_time", "06:30:00")
@@ -77,10 +85,10 @@ async def test_override_applies_then_clears_back_to_schedule(hass):
     calls = async_mock_service(hass, "climate", "set_temperature")
     mgr = await _make(hass, _bed())  # a@20:00->80, b@22:00->70
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
-        await mgr.async_set_override("bed", 66)
+        await mgr.async_set_override("bed", _t(66))
         await hass.async_block_till_done()
     assert calls[-1].data["temperature"] == 66.0
-    assert mgr.state["bed"]["current"] == 66 and mgr.state["bed"]["overridden"] is True
+    assert mgr.state["bed"]["current"] == _t(66) and mgr.state["bed"]["overridden"] is True
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
         await mgr.async_clear_override("bed")
         await hass.async_block_till_done()
@@ -93,13 +101,13 @@ async def test_override_expires_at_next_transition(hass):
     async_mock_service(hass, "climate", "set_temperature")
     mgr = await _make(hass, _bed())
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
-        await mgr.async_set_override("bed", 66)  # holds until 22:00
+        await mgr.async_set_override("bed", _t(66))  # holds until 22:00
         await hass.async_block_till_done()
     with freeze_time(datetime(2026, 1, 5, 22, 30, tzinfo=TZ)):
         await mgr.async_refresh("bed")
         await hass.async_block_till_done()
     assert mgr.state["bed"]["overridden"] is False
-    assert mgr.state["bed"]["current"] == 70  # 22:00 setpoint now active
+    assert mgr.state["bed"]["current"] == _t(70)  # 22:00 setpoint now active
     await mgr.async_teardown("bed")
 
 
@@ -132,10 +140,10 @@ async def test_default_applied_when_no_active_transition(hass):
     calls = async_mock_service(hass, "climate", "set_temperature")
     sch = Schedule.from_dict({
         "id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
-        "apply": "climate_temperature",
-        "default": {"value": 70},
+        "apply": "climate_temperature", "on_mode": "heat",
+        "default": {"value": _t(70)},
         "transitions": [
-            {"id": "wk", "when": {"type": "time", "at": "08:00"}, "value": 90,
+            {"id": "wk", "when": {"type": "time", "at": "08:00"}, "value": _t(90),
              "weekdays": ["sat", "sun"]}]})
     mgr = await _make(hass, sch)
     with freeze_time(datetime(2026, 1, 5, 12, 0, tzinfo=TZ)):  # Monday: off-day → active None → default

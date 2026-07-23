@@ -103,7 +103,8 @@ async def ws_delete(hass: HomeAssistant, connection, msg) -> None:
 @websocket_api.websocket_command({
     vol.Required("type"): "timeline_scheduler/override",
     vol.Required("id_"): str,
-    vol.Required("value"): vol.Any(float, int, str),
+    # A value is the per-apply JSON object; scalars kept for lenient callers.
+    vol.Required("value"): vol.Any(dict, float, int, str),
 })
 @websocket_api.async_response
 async def ws_override(hass: HomeAssistant, connection, msg) -> None:

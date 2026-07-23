@@ -55,6 +55,10 @@ class Schedule:
     transitions: list[Transition]
     enabled: bool = True
     default: dict | None = None
+    # For climate_temperature: the hvac mode used to turn the device on when a
+    # setpoint carries a temperature but no explicit mode. Required for climate
+    # schedules (enforced by the config flow); None for other apply types.
+    on_mode: str | None = None
     # True when this schedule is owned by a config subentry (created from the
     # "Add Schedule" UI). Server-authoritative: clients (card WS save, the
     # upsert_schedule service) must not be able to clear it. See websocket_api
@@ -67,6 +71,7 @@ class Schedule:
             id=d["id"], name=d.get("name", d["id"]), target=d["target"],
             apply=d["apply"], enabled=d.get("enabled", True),
             default=d.get("default"), managed=d.get("managed", False),
+            on_mode=d.get("on_mode"),
             transitions=[Transition.from_dict(t) for t in d.get("transitions", [])],
         )
 
@@ -74,6 +79,8 @@ class Schedule:
         d: dict = {"id": self.id, "name": self.name, "enabled": self.enabled,
                    "target": self.target, "apply": self.apply, "default": self.default,
                    "transitions": [t.to_dict() for t in self.transitions]}
+        if self.on_mode is not None:
+            d["on_mode"] = self.on_mode
         if self.managed:
             d["managed"] = True
         return d

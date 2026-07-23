@@ -13,7 +13,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .actions import build_service_call
+from .actions import build_service_calls
 from .const import schedule_updated_signal
 from .resolver import active_and_next
 from .store import ScheduleStore
@@ -136,8 +136,7 @@ class TimelineManager:
         }
         self._dispatch(sid)
         if value is not None:
-            domain, service, data = build_service_call(schedule.apply, value, schedule.target)
-            await self.hass.services.async_call(domain, service, data, blocking=False)
+            await self._apply(schedule, value)
         self._cancel_timer(sid)
         if nxt is not None:
             job = HassJob(
@@ -147,6 +146,24 @@ class TimelineManager:
             )
             self._timers[sid] = async_track_point_in_time(
                 self.hass, job, nxt.when_dt)
+
+    async def _apply(self, schedule, value) -> None:
+        """Realize a value on the schedule's target via one or more service calls."""
+        entity_id = schedule.target.get("entity_id")
+        st = self.hass.states.get(entity_id) if entity_id else None
+        current_mode = st.state if st is not None else None
+        try:
+            calls = build_service_calls(
+                schedule.apply, value, schedule.target,
+                on_mode=schedule.on_mode, current_mode=current_mode,
+            )
+        except (ValueError, KeyError) as err:
+            _LOGGER.warning(
+                "timeline_scheduler: skipping bad value for %s: %s", schedule.id, err
+            )
+            return
+        for domain, service, data in calls:
+            await self.hass.services.async_call(domain, service, data, blocking=False)
 
     def _make_timer_handler(self, sid: str):
         @callback

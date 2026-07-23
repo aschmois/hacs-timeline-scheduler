@@ -23,7 +23,8 @@ ID_SCHEMA = vol.Schema({vol.Required("id"): cv.string})
 
 OVERRIDE_SCHEMA = vol.Schema({
     vol.Required("id"): cv.string,
-    vol.Required("value"): vol.Any(float, int, str),
+    # A value is the per-apply JSON object; scalars kept for lenient callers.
+    vol.Required("value"): vol.Any(dict, float, int, str),
 })
 
 

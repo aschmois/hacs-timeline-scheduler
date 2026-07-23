@@ -6,12 +6,14 @@ from custom_components.timeline_scheduler.models import Schedule
 from .helpers import setup_integration
 
 RAW = {"id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
-       "apply": "climate_temperature",
-       "transitions": [{"id": "t1", "when": {"type": "time", "at": "20:00"}, "value": 80}]}
+       "apply": "climate_temperature", "on_mode": "heat",
+       "transitions": [{"id": "t1", "when": {"type": "time", "at": "20:00"},
+                        "value": {"mode": None, "temp": 80}}]}
 
 
 async def _setup(hass):
     async_mock_service(hass, "climate", "set_temperature")
+    async_mock_service(hass, "climate", "set_hvac_mode")
     await setup_integration(hass)
 
 
@@ -48,7 +50,7 @@ async def test_ws_preview(hass, hass_ws_client):
     resp = await client.receive_json()
     assert resp["success"]
     occ = resp["result"]["occurrences"]
-    assert len(occ) == 1 and occ[0]["value"] == 80
+    assert len(occ) == 1 and occ[0]["value"] == {"mode": None, "temp": 80}
     assert occ[0]["time"].startswith("2026-01-05T20:00:00")
 
 
@@ -72,8 +74,9 @@ async def test_ws_preview_bad_date(hass, hass_ws_client):
 
 
 SAVE = {"id": "office", "name": "Office", "target": {"entity_id": "climate.office"},
-        "apply": "climate_temperature",
-        "transitions": [{"id": "t1", "when": {"type": "time", "at": "09:00"}, "value": 68}]}
+        "apply": "climate_temperature", "on_mode": "heat",
+        "transitions": [{"id": "t1", "when": {"type": "time", "at": "09:00"},
+                         "value": {"mode": None, "temp": 68}}]}
 
 
 async def test_ws_save_then_list(hass, hass_ws_client):
@@ -127,7 +130,8 @@ async def test_ws_override_and_clear(hass, hass_ws_client):
     await _setup(hass)
     await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
     client = await hass_ws_client(hass)
-    await client.send_json({"id": 1, "type": "timeline_scheduler/override", "id_": "bed", "value": 66})
+    await client.send_json({"id": 1, "type": "timeline_scheduler/override", "id_": "bed",
+                            "value": {"mode": None, "temp": 66}})
     resp = await client.receive_json()
     assert resp["success"] and resp["result"]["overridden"] is True
     assert hass.data[DOMAIN]["manager"].state["bed"]["overridden"] is True

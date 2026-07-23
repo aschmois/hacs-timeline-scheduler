@@ -30,7 +30,17 @@
           },
           "data_description": {
             "target": "The entity this schedule controls — a switch/light, a climate (thermostat), or a number.",
-            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Values are temperatures, e.g. 72.\n- **Climate HVAC mode** — a thermostat's mode. Values like heat, cool, off.\n- **Number value** — a number entity. Values are plain numbers."
+            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Each setpoint sets a temperature and/or an HVAC mode; you'll choose a turn-on mode next.\n- **Number value** — a number entity. Values are plain numbers."
+          }
+        },
+        "on_mode": {
+          "title": "Turn-on mode",
+          "description": "When a setpoint sets a temperature but no explicit mode, the schedule turns the thermostat on using this mode (it's only changed when it differs from the current mode).",
+          "data": {
+            "on_mode": "Turn on as"
+          },
+          "data_description": {
+            "on_mode": "The HVAC mode used to turn the device on — e.g. heat, cool, heat_cool, or auto. Pick the one your thermostat supports."
           }
         },
         "reconfigure": {
@@ -44,7 +54,7 @@
           },
           "data_description": {
             "target": "The entity this schedule controls — a switch/light, a climate (thermostat), or a number.",
-            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Values are temperatures, e.g. 72.\n- **Climate HVAC mode** — a thermostat's mode. Values like heat, cool, off.\n- **Number value** — a number entity. Values are plain numbers."
+            "apply": "How each setpoint value is sent to the target — match it to your target entity:\n\n- **Switch on/off** — a switch or light. Values are on/off.\n- **Climate temperature** — a thermostat. Each setpoint sets a temperature and/or an HVAC mode; you'll choose a turn-on mode next.\n- **Number value** — a number entity. Values are plain numbers."
           }
         }
       },

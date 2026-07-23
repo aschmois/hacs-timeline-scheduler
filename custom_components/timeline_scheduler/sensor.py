@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
+from .actions import format_display
 from .const import DOMAIN, SCHEDULE_SUBENTRY_TYPE
 from .entity import TimelineScheduleEntity
 
@@ -64,7 +65,7 @@ class ScheduleNextChangeSensor(TimelineScheduleEntity, SensorEntity):
 
 
 class _ScheduleValueSensor(TimelineScheduleEntity, SensorEntity):
-    """A schedule value (temperature number or a mode string); no fixed unit."""
+    """A schedule value rendered as a compact string (e.g. ``heat 72°``, ``on``)."""
 
     _state_key = ""
 
@@ -74,7 +75,9 @@ class _ScheduleValueSensor(TimelineScheduleEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType:
-        return (self._manager.state.get(self._sid) or {}).get(self._state_key)
+        value = (self._manager.state.get(self._sid) or {}).get(self._state_key)
+        schedule = self._manager.store.get(self._sid)
+        return format_display(schedule.apply if schedule else "", value)
 
 
 class ScheduleCurrentSensor(_ScheduleValueSensor):

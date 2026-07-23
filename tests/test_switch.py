@@ -14,14 +14,16 @@ TZ = ZoneInfo("America/New_York")
 BED = {
     "id": "bed", "name": "Bed", "enabled": True, "managed": True,
     "target": {"entity_id": "climate.bed"}, "apply": "climate_temperature",
-    "default": None,
-    "transitions": [{"id": "a", "when": {"type": "time", "at": "20:00"}, "value": 80}],
+    "on_mode": "heat", "default": None,
+    "transitions": [
+        {"id": "a", "when": {"type": "time", "at": "20:00"}, "value": {"mode": None, "temp": 80}}],
 }
 
 
 async def test_switch_created_and_toggles(hass, hass_storage):
     await hass.config.async_set_time_zone("America/New_York")
     async_mock_service(hass, "climate", "set_temperature")
+    async_mock_service(hass, "climate", "set_hvac_mode")
     seed_store(hass_storage, BED)
 
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):

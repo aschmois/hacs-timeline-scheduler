@@ -47,7 +47,7 @@ async def test_setup_entry_runtime_then_unload(hass):
 
 
 async def _add_schedule(hass, entry, name="Bed", target="climate.bed",
-                        apply="climate_temperature", enabled=True):
+                        apply="climate_temperature", enabled=True, on_mode="heat"):
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SCHEDULE_SUBENTRY_TYPE), context={"source": SOURCE_USER}
     )
@@ -56,13 +56,19 @@ async def _add_schedule(hass, entry, name="Bed", target="climate.bed",
         result["flow_id"],
         {"name": name, "target": target, "apply": apply, "enabled": enabled},
     )
+    # climate_temperature requires a second step for the required on_mode.
+    if result["type"] == FlowResultType.FORM:
+        assert result["step_id"] == "on_mode"
+        result = await hass.config_entries.subentries.async_configure(
+            result["flow_id"], {"on_mode": on_mode}
+        )
     await hass.async_block_till_done()
     return result
 
 
 async def test_add_schedule_subentry_creates_managed_schedule(hass):
     entry = await setup_integration(hass)
-    result = await _add_schedule(hass, entry)
+    result = await _add_schedule(hass, entry, on_mode="heat")
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
     store = hass.data[DOMAIN]["store"]
@@ -72,7 +78,20 @@ async def test_add_schedule_subentry_creates_managed_schedule(hass):
     assert sch.name == "Bed"
     assert sch.target == {"entity_id": "climate.bed"}
     assert sch.apply == "climate_temperature"
+    assert sch.on_mode == "heat"
     assert sch.transitions == []
+
+
+async def test_add_switch_schedule_skips_on_mode_step(hass):
+    """Non-climate schedules are created in one step with no on_mode."""
+    entry = await setup_integration(hass)
+    result = await _add_schedule(
+        hass, entry, name="Shed", target="switch.shed", apply="switch_onoff"
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    sch = hass.data[DOMAIN]["store"].get("shed")
+    assert sch is not None and sch.apply == "switch_onoff"
+    assert sch.on_mode is None
 
 
 async def test_add_schedule_slug_collision_gets_unique_id(hass):
@@ -99,6 +118,11 @@ async def test_reconfigure_subentry_updates_schedule(hass):
         {"name": "Main Bed", "target": "climate.other",
          "apply": "climate_temperature", "enabled": False},
     )
+    # climate → required on_mode step
+    assert result["type"] == FlowResultType.FORM and result["step_id"] == "on_mode"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"on_mode": "cool"}
+    )
     await hass.async_block_till_done()
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -108,4 +132,5 @@ async def test_reconfigure_subentry_updates_schedule(hass):
     assert sch.name == "Main Bed"
     assert sch.target == {"entity_id": "climate.other"}
     assert sch.enabled is False
+    assert sch.on_mode == "cool"
     assert sch.managed is True  # preserved across reconfigure

@@ -15,8 +15,9 @@ from .helpers import seed_store, setup_integration, setup_with_subentries
 TZ = ZoneInfo("America/New_York")
 
 RAW = {"id": "bed", "name": "Bed", "target": {"entity_id": "climate.bed"},
-       "apply": "climate_temperature",
-       "transitions": [{"id": "a", "when": {"type": "time", "at": "20:00"}, "value": 80}]}
+       "apply": "climate_temperature", "on_mode": "heat",
+       "transitions": [{"id": "a", "when": {"type": "time", "at": "20:00"},
+                        "value": {"mode": None, "temp": 80}}]}
 
 MANAGED_BED = {**RAW, "enabled": True, "default": None, "managed": True}
 
@@ -24,6 +25,7 @@ MANAGED_BED = {**RAW, "enabled": True, "default": None, "managed": True}
 async def test_setup_and_upsert_service_applies(hass):
     await hass.config.async_set_time_zone("America/New_York")
     calls = async_mock_service(hass, "climate", "set_temperature")
+    async_mock_service(hass, "climate", "set_hvac_mode")
     await setup_integration(hass)
 
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
@@ -47,6 +49,7 @@ async def test_remove_service_rejects_managed_schedule(hass):
 async def test_subentry_creates_device_and_removal_prunes_schedule(hass, hass_storage):
     await hass.config.async_set_time_zone("America/New_York")
     async_mock_service(hass, "climate", "set_temperature")
+    async_mock_service(hass, "climate", "set_hvac_mode")
     seed_store(hass_storage, MANAGED_BED)
 
     with freeze_time(datetime(2026, 1, 5, 21, 0, tzinfo=TZ)):
