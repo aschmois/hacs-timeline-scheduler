@@ -4,10 +4,10 @@ import type { Schedule } from './types';
 
 const SCH: Schedule = {
   id: 'bed', name: 'Bedroom Bed', enabled: true, target: { entity_id: 'climate.bed' },
-  apply: 'climate_temperature', default: { value: null },
+  apply: 'climate_temperature', on_mode: 'heat', default: { value: null },
   transitions: [
-    { id: 't1', when: { type: 'time', at: '20:00' }, value: 80, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
-    { id: 't2', when: { type: 'time', at: '02:00' }, value: 83, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+    { id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 80 }, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+    { id: 't2', when: { type: 'time', at: '02:00' }, value: { mode: null, temp: 83 }, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
   ],
 };
 function mkHass() {

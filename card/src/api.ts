@@ -1,4 +1,4 @@
-import type { HassLike, Schedule } from './types';
+import type { HassLike, Schedule, SetVal } from './types';
 
 export const listSchedules = (hass: HassLike): Promise<Schedule[]> =>
   hass.connection.sendMessagePromise<{ schedules: Schedule[] }>({ type: 'timeline_scheduler/list' })
@@ -17,7 +17,7 @@ export const saveSchedule = (hass: HassLike, schedule: Schedule): Promise<Schedu
 export const deleteSchedule = (hass: HassLike, id: string): Promise<{ id: string; removed: boolean }> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/delete', id_: id });
 
-export const setOverride = (hass: HassLike, id: string, value: number | string): Promise<unknown> =>
+export const setOverride = (hass: HassLike, id: string, value: SetVal): Promise<unknown> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/override', id_: id, value });
 
 export const clearOverride = (hass: HassLike, id: string): Promise<unknown> =>

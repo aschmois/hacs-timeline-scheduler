@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { expandByDay, collapseToTransitions, daySegments, parseOffsetMin, fmtMin, resolveMin, fmtClock } from './schedule';
+import { expandByDay, collapseToTransitions, daySegments, parseOffsetMin, fmtMin, resolveMin, fmtClock, vTemp } from './schedule';
 import type { Schedule } from './types';
 
 const SCH: Schedule = {
   id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' },
-  apply: 'climate_temperature', default: { value: null },
+  apply: 'climate_temperature', on_mode: 'heat', default: { value: null },
   transitions: [
-    { id: 't1', when: { type: 'time', at: '20:00' }, value: 80, weekdays: ['mon', 'tue'] },
-    { id: 't2', when: { type: 'anchor', entity: 'input_datetime.wakeup_time', offset: '-00:30' }, value: 95, weekdays: ['mon'] },
+    { id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 80 }, weekdays: ['mon', 'tue'] },
+    { id: 't2', when: { type: 'anchor', entity: 'input_datetime.wakeup_time', offset: '-00:30' }, value: { mode: null, temp: 95 }, weekdays: ['mon'] },
   ],
 };
 const hass = { connection: {} as any, states: { 'input_datetime.wakeup_time': { state: '06:30:00' } } } as any;
@@ -31,7 +31,7 @@ describe('schedule', () => {
     expect(flat.every((t) => t.weekdays!.length === 1)).toBe(true);
   });
   it('resolveMin parses ISO datetime anchor states (sun_next_dawn) and plain clocks', () => {
-    const e = { id: 'x', kind: 'anchor', entity: 'sensor.sun_next_dawn', offsetMin: 0, value: 'on' } as any;
+    const e = { id: 'x', kind: 'anchor', entity: 'sensor.sun_next_dawn', offsetMin: 0, value: { mode: null, temp: 70 } } as any;
     // local-time ISO (no tz) parses deterministically as 10:30 local
     const isoHass = { states: { 'sensor.sun_next_dawn': { state: '2026-07-22T10:30:00' } } } as any;
     expect(resolveMin(e, isoHass)).toBe(10 * 60 + 30);
@@ -48,9 +48,9 @@ describe('schedule', () => {
     const by = expandByDay(SCH);
     const segs = daySegments(by.mon, hass); // anchor 06:30-00:30 = 06:00 -> 95; 20:00 -> 80
     // value held from 00:00 is the last entry (20:00 -> 80)
-    expect(segs[0].value).toBe(80);
+    expect(vTemp(segs[0].value)).toBe(80);
     const at6 = segs.find((s) => s.m0 === 360);
-    expect(at6?.value).toBe(95);
+    expect(vTemp(at6?.value)).toBe(95);
     expect(fmtMin(360)).toBe('06:00');
   });
 });

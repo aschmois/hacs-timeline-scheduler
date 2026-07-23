@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import './card';
-import { fmtClock, isTemp } from './schedule';
+import { fmtClock, vTemp, vMode } from './schedule';
 import type { Schedule } from './types';
 
 describe('fmtClock', () => {
@@ -15,19 +15,21 @@ describe('fmtClock', () => {
   });
 });
 
-describe('isTemp', () => {
-  it('numbers are temperatures, strings are modes', () => {
-    expect(isTemp(72)).toBe(true);
-    expect(isTemp('auto')).toBe(false);
+describe('value accessors', () => {
+  it('read temp and mode from a climate value object', () => {
+    expect(vTemp({ mode: null, temp: 72 })).toBe(72);
+    expect(vMode({ mode: null, temp: 72 })).toBe(null);
+    expect(vMode({ mode: 'off', temp: null })).toBe('off');
+    expect(vTemp({ mode: 'off', temp: null })).toBe(null);
   });
 });
 
 const SCH: Schedule = {
   id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature',
-  default: null,
+  on_mode: 'heat', default: null,
   transitions: [
-    { id: 't1', when: { type: 'time', at: '20:00' }, value: 72, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
-    { id: 't2', when: { type: 'time', at: '23:00' }, value: 'off', weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+    { id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 72 }, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+    { id: 't2', when: { type: 'time', at: '23:00' }, value: { mode: 'off', temp: null }, weekdays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
   ],
 };
 function mkHass() {
@@ -55,7 +57,7 @@ describe('card v2', () => {
     expect(el.shadowRoot.querySelector('.lock')).toBeTruthy();
   });
 
-  it('renders a temperature and a mode setpoint (mode band present)', async () => {
+  it('renders a temperature and a mode (off) setpoint (mode band present)', async () => {
     const el = await mount();
     const txt = el.shadowRoot.textContent;
     expect(txt).toContain('72°');
@@ -75,9 +77,9 @@ describe('card v2', () => {
     const el = await mount();
     el._day = 'mon';
     el._perDay.mon = [
-      { id: 'a', kind: 'time', atMin: 23 * 60, value: 70 },
-      { id: 'b', kind: 'time', atMin: 6 * 60, value: 72 },
-      { id: 'c', kind: 'time', atMin: 12 * 60, value: 68 },
+      { id: 'a', kind: 'time', atMin: 23 * 60, value: { mode: null, temp: 70 } },
+      { id: 'b', kind: 'time', atMin: 6 * 60, value: { mode: null, temp: 72 } },
+      { id: 'c', kind: 'time', atMin: 12 * 60, value: { mode: null, temp: 68 } },
     ];
     expect(el._sortedDay().map((e: any) => e.id)).toEqual(['b', 'c', 'a']);
   });
@@ -130,11 +132,12 @@ describe('card v2', () => {
     expect(el._hist.actual.length).toBe(5); // actual measurement stays continuous
   });
 
-  it('shows an Override badge + Resume when the target diverges from the scheduled value', async () => {
+  it('shows an Override badge + Resume when the target temperature diverges', async () => {
     const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const SC: any = {
-      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
-      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: 70, weekdays: days }],
+      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature',
+      on_mode: 'heat', default: null,
+      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: { mode: null, temp: 70 }, weekdays: days }],
     };
     const sent: any[] = [];
     const el = document.createElement('timeline-scheduler-card') as any;
@@ -145,7 +148,7 @@ describe('card v2', () => {
       config: { unit_system: { temperature: '°F' } },
     };
     for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
-    expect(el._overrideInfo().active).toBe(true);
+    expect(el._overrideInfo().active).toBe(true); // scheduled 70 in heat, actual heat@66
     expect(el.shadowRoot.querySelector('.ovbadge')).toBeTruthy();
     el.shadowRoot.querySelector('.reslink').click();
     await el.updateComplete;
@@ -155,8 +158,9 @@ describe('card v2', () => {
   it('temperature axis uses the device min_temp/max_temp', async () => {
     const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const SC: any = {
-      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
-      transitions: [{ id: 'a', when: { type: 'time', at: '20:00' }, value: 72, weekdays: days }],
+      id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature',
+      on_mode: 'auto', default: null,
+      transitions: [{ id: 'a', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 72 }, weekdays: days }],
     };
     const el = document.createElement('timeline-scheduler-card') as any;
     el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
@@ -170,11 +174,11 @@ describe('card v2', () => {
     expect(el._scale().tmax).toBe(118);
   });
 
-  it('mode-scheduled override compares hvac state, not temperature', async () => {
+  it('a mode-only setpoint compares hvac state, not temperature', async () => {
     const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const SC: any = {
       id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature', default: null,
-      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: 'auto', weekdays: days }],
+      transitions: [{ id: 'a', when: { type: 'time', at: '00:00' }, value: { mode: 'auto', temp: null }, weekdays: days }],
     };
     const mk = (state: string) => ({
       connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? SC : { schedules: [SC] }) },
@@ -194,8 +198,8 @@ describe('card v2', () => {
     const SW: any = {
       id: 'shed', name: 'Shed', enabled: true, target: { entity_id: 'switch.shed' }, apply: 'switch_onoff', default: null,
       transitions: [
-        { id: 'a', when: { type: 'time', at: '08:00' }, value: 'on', weekdays: days },
-        { id: 'b', when: { type: 'time', at: '20:00' }, value: 'off', weekdays: days },
+        { id: 'a', when: { type: 'time', at: '08:00' }, value: { state: 'on' }, weekdays: days },
+        { id: 'b', when: { type: 'time', at: '20:00' }, value: { state: 'off' }, weekdays: days },
       ],
     };
     const el = document.createElement('timeline-scheduler-card') as any;
@@ -209,7 +213,7 @@ describe('card v2', () => {
     expect(el.shadowRoot.querySelectorAll('.dot').length).toBe(2);
   });
 
-  it('override / resume send the right WS commands', async () => {
+  it('override sends the temperature as a climate value object; resume clears it', async () => {
     const sent: any[] = [];
     const el = document.createElement('timeline-scheduler-card') as any;
     el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
@@ -219,20 +223,29 @@ describe('card v2', () => {
       config: { unit_system: { temperature: '°F' } },
     };
     for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
-    await el._doOverride(66);
-    expect(sent.some((m) => m.type === 'timeline_scheduler/override' && m.value === 66 && m.id_ === 'bed')).toBe(true);
+    await el._doOverride({ mode: null, temp: 66 });
+    expect(sent.some((m) => m.type === 'timeline_scheduler/override' && m.value && m.value.temp === 66 && m.id_ === 'bed')).toBe(true);
     await el._clearOverride();
     expect(sent.some((m) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
   });
 
-  it('unlocked + selected mode point shows a mode picker built from the device hvac_modes', async () => {
+  it('unlocked + selected setpoint shows a mode picker built from the device hvac_modes', async () => {
     const el = await mount();
     el._toggleLock();
-    const modeEntry = el._activeDay().find((e: any) => typeof e.value === 'string');
+    const modeEntry = el._activeDay().find((e: any) => vMode(e.value) !== null); // the "off" setpoint
     el._sel = modeEntry.id; await el.updateComplete;
     expect(el.shadowRoot.querySelector('.detail')).toBeTruthy();
     const opts = [...el.shadowRoot.querySelectorAll('.detail select.sel option')].map((o: any) => o.value);
     expect(opts).toContain('heat');
     expect(opts).toContain('cool');
+  });
+
+  it('a temperature-only setpoint turns on using the schedule on_mode (Turn on as picker)', async () => {
+    const el = await mount();
+    el._toggleLock(); await el.updateComplete;
+    // The "Turn on as" row reflects the schedule's on_mode.
+    const onmode = el.shadowRoot.querySelector('.onmode select.sel') as HTMLSelectElement;
+    expect(onmode).toBeTruthy();
+    expect(onmode.value).toBe('heat');
   });
 });

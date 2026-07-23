@@ -4,7 +4,8 @@ import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from '
 import { WEEKDAYS } from './types';
 import { getSchedule, saveSchedule, listSchedules, setOverride, clearOverride, fetchHistory } from './api';
 import {
-  expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM, isTemp,
+  expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM,
+  vTemp, vMode, vOn, vNumber, mkClimate, mkSwitch, mkNumber,
   collapseToTransitions, DayEntry,
 } from './schedule';
 import {
@@ -120,7 +121,7 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _scale(): Scale {
     const vals: number[] = [];
-    if (this._perDay) for (const d of WEEKDAYS) for (const e of this._perDay[d]) if (isTemp(e.value)) vals.push(e.value);
+    if (this._perDay) for (const d of WEEKDAYS) for (const e of this._perDay[d]) { const t = vTemp(e.value); if (t !== null) vals.push(t); }
     // Device min/max are in the HA system unit; only apply when the card unit matches.
     const bounds = this._unitMatchesSystem() ? this._targetBounds() : undefined;
     return makeScale(this._unit(), vals, bounds);
@@ -139,11 +140,11 @@ export class TimelineSchedulerCard extends LitElement {
     if (lo != null && hi != null && Number(hi) > Number(lo)) return { min: Number(lo), max: Number(hi) };
     return undefined;
   }
-  protected _applyKind(): 'temp' | 'mode' | 'onoff' | 'number' {
+  protected _applyKind(): 'temp' | 'onoff' | 'number' {
     switch (this._schedule?.apply) {
       case 'switch_onoff': return 'onoff';
       case 'number_set': return 'number';
-      default: return 'temp'; // climate_temperature — temperature or HVAC mode per setpoint
+      default: return 'temp'; // climate_temperature — temperature and/or HVAC mode per setpoint
     }
   }
   protected _modeOptions(): string[] {
@@ -151,16 +152,20 @@ export class TimelineSchedulerCard extends LitElement {
     const m = t ? this.hass?.states[t]?.attributes?.hvac_modes : undefined;
     return Array.isArray(m) && m.length ? m : DEFAULT_MODES;
   }
+  protected _midTemp(): number { const s = this._scale(); return Math.round((s.tmin + s.tmax) / 2); }
   protected _defaultValue(): SetVal {
     const k = this._applyKind();
-    if (k === 'onoff') return 'on';
-    if (k === 'mode') return this._modeOptions()[0] ?? 'off';
-    if (k === 'number') return 0;
-    const s = this._scale(); return Math.round((s.tmin + s.tmax) / 2);
+    if (k === 'onoff') return mkSwitch('on');
+    if (k === 'number') return mkNumber(0);
+    return mkClimate(null, this._midTemp()); // climate: temperature-only, uses the schedule on-mode
   }
   protected _fmtVal(v: SetVal): string {
-    if (isTemp(v)) return `${v}°`;
-    return titleCase(String(v));
+    const k = this._applyKind();
+    if (k === 'onoff') return vOn(v) ? 'On' : 'Off';
+    if (k === 'number') return String(vNumber(v));
+    const t = vTemp(v), m = vMode(v); // climate
+    if (t !== null) return m && m !== 'off' ? `${titleCase(m)} ${t}°` : `${t}°`;
+    return m ? titleCase(m) : '—';
   }
 
   protected _activeDay(): DayEntry[] { return this._perDay ? this._perDay[this._day] : []; }
@@ -203,8 +208,9 @@ export class TimelineSchedulerCard extends LitElement {
     // segments (step function)
     for (const s of daySegments(entries, this.hass)) {
       const x0 = xOfMin(s.m0), w = Math.max(0, xOfMin(s.m1) - x0);
-      if (isTemp(s.value)) {
-        const c = tempColor(s.value, scale), y = yOfTemp(s.value, scale);
+      const t = vTemp(s.value);
+      if (t !== null) {
+        const c = tempColor(t, scale), y = yOfTemp(t, scale);
         g('rect', { x: x0, y, width: w, height: plot.B - y, fill: c, opacity: 0.16 });
         g('line', { class: 'segline', x1: x0, y1: y, x2: xOfMin(s.m1), y2: y, stroke: c });
       } else {
@@ -233,8 +239,8 @@ export class TimelineSchedulerCard extends LitElement {
     // dots + value labels
     for (const e of entries) {
       const m = resolveMin(e, this.hass); if (m === null) continue;
-      const temp = isTemp(e.value); const cy = temp ? yOfTemp(e.value as number, scale) : plot.mode;
-      this._addDot(svg, e, xOfMin(m), cy, temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)', scale);
+      const t = vTemp(e.value); const cy = t !== null ? yOfTemp(t, scale) : plot.mode;
+      this._addDot(svg, e, xOfMin(m), cy, t !== null ? tempColor(t, scale) : 'var(--tsc-mode)', scale);
     }
   }
 
@@ -255,7 +261,7 @@ export class TimelineSchedulerCard extends LitElement {
   protected _renderOnOff(svg: SVGSVGElement, entries: DayEntry[], scale: Scale): void {
     const g = (n: string, a: Record<string, string | number>) => { const e2 = el(n, a); svg.appendChild(e2); return e2; };
     const onY = plot.T + 26, offY = plot.B - 6;
-    const isOn = (v: SetVal) => ['on', 'true', '1', 'yes'].includes(String(v).toLowerCase());
+    const isOn = (v: SetVal) => vOn(v);
     const levels: [number, string][] = [[onY, 'On'], [offY, 'Off']];
     for (const [y, label] of levels) {
       g('line', { class: 'grid', x1: plot.L, y1: y, x2: plot.R, y2: y });
@@ -299,7 +305,10 @@ export class TimelineSchedulerCard extends LitElement {
         const min = Math.max(0, Math.min(1435, Math.round(minOfX(p.x) / 5) * 5));
         if (e.kind === 'time') e.atMin = min;
         else if (alarm !== null) e.offsetMin = Math.max(-720, Math.min(720, Math.round((min - alarm) / 5) * 5));
-        if (isTemp(e.value)) e.value = Math.max(scale.tmin, Math.min(scale.tmax, Math.round(tempOfY(p.y, scale))));
+        if (vTemp(e.value) !== null) {
+          const temp = Math.max(scale.tmin, Math.min(scale.tmax, Math.round(tempOfY(p.y, scale))));
+          e.value = { ...e.value, temp };
+        }
         this.requestUpdate();
       };
       const up = () => {
@@ -410,26 +419,37 @@ export class TimelineSchedulerCard extends LitElement {
     const st = this.hass.states[this._schedule.target.entity_id];
     if (!st) return { active: false };
     const planned = this._plannedNow();
-    if (planned === undefined || planned === null) return { active: false };
+    if (!planned) return { active: false };
     let actual: SetVal | undefined;
     switch (this._applyKind()) {
-      case 'onoff': actual = st.state; break;
-      case 'number': { const n = Number(st.state); if (Number.isFinite(n)) actual = n; break; }
-      default:
-        // climate_temperature: a scheduled number compares to the target temp;
-        // a scheduled mode (auto/off/heat…) compares to the HVAC mode (state).
-        if (typeof planned === 'number') {
-          if (st.state === 'off') actual = 'off';
-          else if (st.attributes && st.attributes.temperature != null) actual = Number(st.attributes.temperature);
-        } else {
-          actual = st.state;
-        }
+      case 'onoff': actual = mkSwitch(st.state === 'on' ? 'on' : 'off'); break;
+      case 'number': { const n = Number(st.state); if (Number.isFinite(n)) actual = mkNumber(n); break; }
+      default: {
+        // climate: the actual mode is the entity state; the target temp lives in
+        // the `temperature` attribute (meaningless while off).
+        const t = st.state === 'off' ? null
+          : (st.attributes && st.attributes.temperature != null ? Number(st.attributes.temperature) : null);
+        actual = mkClimate(st.state, t);
+      }
     }
-    if (actual === undefined) return { active: false };
-    const differ = typeof planned === 'number' && typeof actual === 'number'
-      ? Math.abs(planned - actual) >= 0.5
-      : String(planned).toLowerCase() !== String(actual).toLowerCase();
-    return { active: differ, actual };
+    if (!actual) return { active: false };
+    return { active: !this._sameValue(planned, actual), actual };
+  }
+
+  /** Whether a scheduled value and the target's actual value are equivalent now. */
+  protected _sameValue(planned: SetVal, actual: SetVal): boolean {
+    const kind = this._applyKind();
+    if (kind === 'onoff') return vOn(planned) === vOn(actual);
+    if (kind === 'number') return Math.abs(vNumber(planned) - vNumber(actual)) < 0.5;
+    // climate: a temperature-only setpoint (no explicit mode) resolves to on_mode.
+    const pMode = (vMode(planned) ?? this._schedule?.on_mode ?? '').toLowerCase();
+    const aMode = (vMode(actual) ?? '').toLowerCase();
+    if (pMode !== aMode) return false;
+    if (pMode === 'off') return true;             // off carries no temperature
+    const pTemp = vTemp(planned);
+    if (pTemp === null) return true;              // planned didn't pin a temperature
+    const aTemp = vTemp(actual);
+    return aTemp !== null && Math.abs(pTemp - aTemp) < 0.5;
   }
 
   render() {
@@ -470,6 +490,7 @@ export class TimelineSchedulerCard extends LitElement {
           ${this._sortedDay().map((e) => this._row(e, scale))}
         </div>
         ${this._detail()}
+        ${this._onModeRow()}
         ${this._locked ? nothing : this._overrideRow()}
         ${this._footer()}
       </ha-card>`;
@@ -477,16 +498,22 @@ export class TimelineSchedulerCard extends LitElement {
 
   // ---- manual override ------------------------------------------------------
   protected _overrideRow() {
-    const onoff = this._applyKind() === 'onoff';
+    const kind = this._applyKind();
+    if (kind === 'onoff') {
+      return html`<div class="override">
+        <span class="olabel">Override now</span>
+        <button class="obtn" @click=${() => this._doOverride(mkSwitch('on'))}>On</button>
+        <button class="obtn" @click=${() => this._doOverride(mkSwitch('off'))}>Off</button>
+        <button class="obtn clr" @click=${() => this._clearOverride()}>Resume schedule</button>
+      </div>`;
+    }
+    const mk = (n: number) => (kind === 'number' ? mkNumber(n) : mkClimate(null, n));
     return html`<div class="override">
       <span class="olabel">Override now</span>
-      ${onoff
-        ? html`<button class="obtn" @click=${() => this._doOverride('on')}>On</button>
-               <button class="obtn" @click=${() => this._doOverride('off')}>Off</button>`
-        : html`<input class="num" type="number" .value=${this._ovInput} placeholder="value"
-                 @input=${(e: Event) => { this._ovInput = (e.target as HTMLInputElement).value; }} />
-               <button class="obtn" ?disabled=${this._ovInput === ''}
-                 @click=${() => this._doOverride(Number(this._ovInput))}>Hold until next change</button>`}
+      <input class="num" type="number" .value=${this._ovInput} placeholder="value"
+        @input=${(e: Event) => { this._ovInput = (e.target as HTMLInputElement).value; }} />
+      <button class="obtn" ?disabled=${this._ovInput === ''}
+        @click=${() => this._doOverride(mk(Number(this._ovInput)))}>Hold until next change</button>
       <button class="obtn clr" @click=${() => this._clearOverride()}>Resume schedule</button>
     </div>`;
   }
@@ -504,9 +531,9 @@ export class TimelineSchedulerCard extends LitElement {
   }
 
   protected _row(e: DayEntry, scale: Scale) {
-    const m = resolveMin(e, this.hass!); const temp = isTemp(e.value);
+    const m = resolveMin(e, this.hass!); const t = vTemp(e.value);
     return html`<div class="row ${e.id === this._sel ? 'sel' : ''}" @click=${() => (this._sel = e.id)}>
-      <span class="sw" style=${`background:${temp ? tempColor(e.value as number, scale) : 'var(--tsc-mode)'}`}></span>
+      <span class="sw" style=${`background:${t !== null ? tempColor(t, scale) : 'var(--tsc-mode)'}`}></span>
       <span class="when">${m === null ? '—' : fmtClock(m, this.hass)}</span>
       <span class="kind ${e.kind}">${e.kind === 'anchor' ? `⏰ ${e.entity ? shortEntity(e.entity) : 'entity'}` : 'fixed'}</span>
       <span class="temp">${this._fmtVal(e.value)}</span>
@@ -547,43 +574,72 @@ export class TimelineSchedulerCard extends LitElement {
   protected _valueEditor(e: DayEntry) {
     const kind = this._applyKind();
     if (kind === 'onoff') {
+      const on = vOn(e.value);
       return html`<div class="drow"><span class="dlabel">Value</span>
         <div class="seg">
-          <button class=${String(e.value) === 'on' ? 'on' : ''} @click=${() => this._mutateSel((x) => { x.value = 'on'; })}>On</button>
-          <button class=${String(e.value) === 'off' ? 'on' : ''} @click=${() => this._mutateSel((x) => { x.value = 'off'; })}>Off</button>
+          <button class=${on ? 'on' : ''} @click=${() => this._mutateSel((x) => { x.value = mkSwitch('on'); })}>On</button>
+          <button class=${!on ? 'on' : ''} @click=${() => this._mutateSel((x) => { x.value = mkSwitch('off'); })}>Off</button>
         </div></div>`;
     }
     if (kind === 'number') {
       return html`<div class="drow"><span class="dlabel">Value</span>
-        <input class="num" type="number" .value=${String(isTemp(e.value) ? e.value : 0)}
-          @change=${(ev: Event) => this._mutateSel((x) => { x.value = Number((ev.target as HTMLInputElement).value) || 0; })} /></div>`;
+        <input class="num" type="number" .value=${String(vNumber(e.value))}
+          @change=${(ev: Event) => this._mutateSel((x) => { x.value = mkNumber(Number((ev.target as HTMLInputElement).value) || 0); })} /></div>`;
     }
-    if (kind === 'mode') {
-      return this._modeRow(e);
-    }
-    // climate_temperature: temperature OR mode
-    const asTemp = isTemp(e.value);
-    return html`<div class="drow"><span class="dlabel">Value</span>
-      <div class="seg">
-        <button class=${asTemp ? 'on' : ''} @click=${() => { if (!asTemp) this._mutateSel((x) => { x.value = Math.round((this._scale().tmin + this._scale().tmax) / 2); }); }}>Temperature</button>
-        <button class=${!asTemp ? 'on' : ''} @click=${() => { if (asTemp) this._mutateSel((x) => { x.value = this._modeOptions()[0] ?? 'off'; }); }}>Mode</button>
-      </div></div>
-      ${asTemp
-        ? html`<div class="drow"><span class="dlabel"></span>
-            <input class="num" type="number" .value=${String(e.value)}
-              @change=${(ev: Event) => this._mutateSel((x) => { x.value = Math.round(Number((ev.target as HTMLInputElement).value) || 0); })} />
-            <span class="hint">°${this._unit()}</span></div>`
-        : this._modeRow(e)}`;
+    // climate_temperature: an HVAC mode and/or a temperature.
+    const curMode = vMode(e.value); // null → use the schedule's on-mode
+    const temp = vTemp(e.value);
+    const opts = this._modeOptions();
+    const list = curMode && !opts.includes(curMode) ? [curMode, ...opts] : opts;
+    return html`
+      <div class="drow"><span class="dlabel">Mode</span>
+        <select class="sel" @change=${(ev: Event) => this._setMode((ev.target as HTMLSelectElement).value)}>
+          <option value="" ?selected=${curMode === null}>Default (turn-on mode)</option>
+          ${list.map((o) => html`<option value=${o} ?selected=${o === curMode}>${titleCase(o)}</option>`)}
+        </select></div>
+      ${curMode === 'off' ? nothing : html`
+        <div class="drow"><span class="dlabel">Temp</span>
+          <input class="num" type="number" placeholder="—" .value=${temp === null ? '' : String(temp)}
+            @change=${(ev: Event) => this._setTemp((ev.target as HTMLInputElement).value)} />
+          <span class="hint">°${this._unit()}</span></div>`}`;
   }
 
-  protected _modeRow(e: DayEntry) {
-    const opts = this._modeOptions();
-    const cur = String(e.value);
-    const list = opts.includes(cur) ? opts : [cur, ...opts];
-    return html`<div class="drow"><span class="dlabel"></span>
-      <select class="sel" @change=${(ev: Event) => this._mutateSel((x) => { x.value = (ev.target as HTMLSelectElement).value; })}>
-        ${list.map((o) => html`<option value=${o} ?selected=${o === cur}>${titleCase(o)}</option>`)}
-      </select></div>`;
+  /** Change the selected climate setpoint's mode; 'off' drops any temperature,
+   *  and a temperature-only default gets a starting temperature. */
+  protected _setMode(val: string): void {
+    this._mutateSel((x) => {
+      const mode = val === '' ? null : val;
+      let temp = vTemp(x.value);
+      if (mode === 'off') temp = null;
+      else if (temp === null) temp = this._midTemp();
+      x.value = mkClimate(mode, temp);
+    });
+  }
+  protected _setTemp(raw: string): void {
+    this._mutateSel((x) => {
+      const temp = raw.trim() === '' ? null : Math.round(Number(raw) || 0);
+      x.value = mkClimate(vMode(x.value), temp);
+    });
+  }
+
+  /** Schedule-level "turn on as" mode (climate only). */
+  protected _onModeRow() {
+    if (this._locked || this._applyKind() !== 'temp') return nothing;
+    const opts = this._modeOptions().filter((m) => m !== 'off');
+    const cur = this._schedule?.on_mode ?? '';
+    return html`<div class="onmode">
+      <span class="olabel">Turn on as</span>
+      <select class="sel" @change=${(ev: Event) => this._setOnMode((ev.target as HTMLSelectElement).value)}>
+        <option value="" ?selected=${!cur}>—</option>
+        ${opts.map((o) => html`<option value=${o} ?selected=${o === cur}>${titleCase(o)}</option>`)}
+      </select>
+      <span class="hint">used when a setpoint sets a temperature but no mode</span>
+    </div>`;
+  }
+  protected _setOnMode(val: string): void {
+    if (!this._schedule) return;
+    this._schedule = { ...this._schedule, on_mode: val || null };
+    this._scheduleSync();
   }
 
   protected _setTiming(e: DayEntry, kind: 'time' | 'anchor'): void {
@@ -667,6 +723,8 @@ export class TimelineSchedulerCard extends LitElement {
     input[type=time] { font: inherit; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
     ha-entity-picker { flex: 1; }
     .hint { font-size: 12px; color: var(--secondary-text-color); }
+    .onmode { display: flex; gap: 8px; align-items: center; margin: 0 12px 8px; padding: 8px 10px;
+      border: 1px solid var(--divider-color); border-radius: 10px; flex-wrap: wrap; }
     .override { display: flex; gap: 8px; align-items: center; margin: 0 12px 8px; padding: 8px 10px;
       border: 1px dashed var(--divider-color); border-radius: 10px; }
     .olabel { font-size: 12px; color: var(--secondary-text-color); }

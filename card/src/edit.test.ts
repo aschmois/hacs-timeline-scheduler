@@ -4,7 +4,7 @@ import type { Schedule } from './types';
 
 const SCH: Schedule = {
   id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature',
-  default: { value: null }, transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: 80, weekdays: ['mon','tue','wed','thu','fri','sat','sun'] }],
+  on_mode: 'heat', default: { value: null }, transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 80 }, weekdays: ['mon','tue','wed','thu','fri','sat','sun'] }],
 };
 function mkHass(saved: any[]) {
   return { connection: { sendMessagePromise: vi.fn(async (m: any) => {

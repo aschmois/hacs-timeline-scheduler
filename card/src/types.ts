@@ -1,12 +1,17 @@
 export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 export interface When { type: 'time' | 'anchor'; at?: string; entity?: string; offset?: string; }
-// number = temperature / numeric value; string = a mode ("off"/"auto"/"heat"…) or on/off.
-export type SetVal = number | string;
+// A per-apply value object (matches the stored/wire JSON):
+//   climate_temperature -> { mode: string|null, temp: number|null }
+//   switch_onoff        -> { state: 'on'|'off' }
+//   number_set          -> { value: number }
+export interface SetVal { mode?: string | null; temp?: number | null; state?: string; value?: number; }
 export interface Transition { id: string; when: When; value: SetVal; weekdays?: Weekday[]; }
 export interface Schedule {
   id: string; name: string; enabled: boolean;
   target: { entity_id: string }; apply: string;
+  // Climate: hvac mode used to turn on for a temperature-only setpoint.
+  on_mode?: string | null;
   default?: { value: SetVal | null } | null; transitions: Transition[];
 }
 export interface HassEntity { state: string; attributes?: Record<string, any>; }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import './card';
 import type { Schedule } from './types';
 const SCH: Schedule = { id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' }, apply: 'climate_temperature',
-  default: { value: null }, transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: 80, weekdays: ['mon'] }] };
+  on_mode: 'heat', default: { value: null }, transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 80 }, weekdays: ['mon'] }] };
 async function mount() {
   const el = document.createElement('timeline-scheduler-card') as any;
   el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);

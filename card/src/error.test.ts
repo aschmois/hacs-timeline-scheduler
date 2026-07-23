@@ -3,8 +3,8 @@ import './card';
 import type { Schedule } from './types';
 
 const SCH: Schedule = { id: 'bed', name: 'Bed', enabled: true, target: { entity_id: 'climate.bed' },
-  apply: 'climate_temperature', default: { value: null },
-  transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: 80, weekdays: ['mon','tue','wed','thu','fri','sat','sun'] }] };
+  apply: 'climate_temperature', on_mode: 'heat', default: { value: null },
+  transitions: [{ id: 't1', when: { type: 'time', at: '20:00' }, value: { mode: null, temp: 80 }, weekdays: ['mon','tue','wed','thu','fri','sat','sun'] }] };
 
 async function flush(el: any) { for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; } }
 

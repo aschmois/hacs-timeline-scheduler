@@ -14,7 +14,14 @@ export function fmtClock(m: number, hass?: HassLike): string {
   const h12 = h24 % 12 || 12;
   return `${h12}:${pad(mi)} ${ap}`;
 }
-export const isTemp = (v: SetVal): v is number => typeof v === 'number';
+// ---- per-apply value accessors + constructors ----------------------------
+export const vTemp = (v?: SetVal | null): number | null => (v && typeof v.temp === 'number' ? v.temp : null);
+export const vMode = (v?: SetVal | null): string | null => (v && v.mode != null ? String(v.mode) : null);
+export const vOn = (v?: SetVal | null): boolean => String((v && v.state) ?? '').toLowerCase() === 'on';
+export const vNumber = (v?: SetVal | null): number => (v && typeof v.value === 'number' ? v.value : 0);
+export const mkClimate = (mode: string | null, temp: number | null): SetVal => ({ mode, temp });
+export const mkSwitch = (state: 'on' | 'off'): SetVal => ({ state });
+export const mkNumber = (value: number): SetVal => ({ value });
 export function parseHHMM(s: string): number { const [h, mi] = s.split(':'); return Number(h) * 60 + Number(mi); }
 export function parseOffsetMin(s: string): number {
   let sign = 1, v = s.trim();
