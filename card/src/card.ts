@@ -372,18 +372,14 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _toggleLock(): void { this._locked = !this._locked; if (this._locked) this._sel = null; }
 
-  protected _deviceId(): string | undefined {
-    const sid = this._config?.schedule_id;
-    if (!sid || !this.hass?.devices) return undefined;
-    const dev = Object.values(this.hass.devices).find((d) =>
-      (d.identifiers || []).some((idf) => idf[0] === 'timeline_scheduler' && idf[1] === sid));
-    return dev?.id;
+  protected _targetEntity(): string | undefined {
+    return this._schedule?.target?.entity_id || undefined;
   }
-  protected _openDevice(): void {
-    const id = this._deviceId();
-    if (!id) return;
-    history.pushState(null, '', `/config/devices/device/${id}`);
-    window.dispatchEvent(new CustomEvent('location-changed', { detail: { replace: false }, bubbles: true, composed: true }));
+  /** Open the controlled entity's more-info dialog; changing it there is an override. */
+  protected _openTarget(): void {
+    const entityId = this._targetEntity();
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId }, bubbles: true, composed: true }));
   }
 
   static async getConfigElement() { await import('./editor'); return document.createElement('timeline-scheduler-card-editor'); }
@@ -458,8 +454,8 @@ export class TimelineSchedulerCard extends LitElement {
     return html`
       <ha-card>
         <div class="head">
-          <div class="title ${this._deviceId() ? 'link' : ''}" role="button" tabindex="0"
-            title=${this._deviceId() ? 'Open device' : ''} @click=${() => this._openDevice()}>
+          <div class="title ${this._targetEntity() ? 'link' : ''}" role="button" tabindex="0"
+            title=${this._targetEntity() ? 'Open ' + this._targetEntity() : ''} @click=${() => this._openTarget()}>
             <h2>${this._config.name ?? s?.name ?? 'Schedule'}</h2>
           </div>
           <div class="now">

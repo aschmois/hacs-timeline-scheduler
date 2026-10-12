@@ -34,6 +34,13 @@ describe('timeline-scheduler-card', () => {
     const dots = el.shadowRoot.querySelectorAll('.dot');
     expect(dots.length).toBe(2); // both transitions apply every day
   });
+  it('opens the target entity more-info when the title is clicked', async () => {
+    const el = await mount();
+    let opened: string | undefined;
+    el.addEventListener('hass-more-info', (e: CustomEvent) => { opened = e.detail.entityId; });
+    el.shadowRoot.querySelector('.title').click();
+    expect(opened).toBe('climate.bed');
+  });
   it('throws on missing config', () => {
     const el = document.createElement('timeline-scheduler-card') as any;
     expect(() => el.setConfig(undefined)).toThrow();
