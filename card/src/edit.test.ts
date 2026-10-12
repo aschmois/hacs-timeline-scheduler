@@ -81,16 +81,29 @@ describe('editing', () => {
     expect(el._activeDay()[0].value).toEqual({ mode: null, temp: 70 });
     expect(el._appliedDay()[0].value).toEqual({ mode: null, temp: 80 });
   });
-  it('"Edit all days" mirrors edits to every day and hides the copy controls', async () => {
+  it('"Sync all days" syncs on enable (as a draft), mirrors edits and hides the copy controls', async () => {
     const saved: any[] = []; const el = await mount(saved);
-    el._toggleLock(); await el.updateComplete;
+    el._toggleLock(); el._day = 'mon'; await el.updateComplete;
     expect(el.shadowRoot.querySelector('.foot select')).toBeTruthy();
+    expect(el.shadowRoot.querySelector('.alldays').textContent).toContain('Sync all days');
+    el._perDay.tue = [];                       // days differ -> enabling must sync them
     el._setAllDays(true); await el.updateComplete;
+    expect(el._perDay.tue.length).toBe(1);
+    expect(el._dirty).toBe(true);
+    expect(el.shadowRoot.querySelector('.draft')).toBeTruthy();   // Confirm is offered
     expect(el.shadowRoot.querySelector('.foot select')).toBeNull();
     expect([...el.shadowRoot.querySelectorAll('.foot button')].map((b: any) => b.textContent.trim())).toEqual(['＋ Add setpoint']);
     el._addSetpoint(); await el.updateComplete;
     for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) expect(el._perDay[d].length).toBe(2);
     el._setAllDays(false); await el.updateComplete;
     expect(el.shadowRoot.querySelector('.foot select')).toBeTruthy();
+  });
+  it('enabling "Sync all days" when the days already match changes nothing', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._toggleLock(); await el.updateComplete;
+    el._setAllDays(true); await el.updateComplete;
+    expect(el._dirty).toBe(false);
+    expect(el.shadowRoot.querySelector('.draft')).toBeNull();
+    expect(el.shadowRoot.querySelector('.status').textContent).not.toContain('Confirm');
   });
 });

@@ -38,7 +38,7 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _perDay?: Record<Weekday, DayEntry[]>;
   @state() protected _applied?: Record<Weekday, DayEntry[]>;
   @state() protected _onMode: string | null = null;
-  /** "Edit all days": every edit to the shown day is mirrored to the other six. */
+  /** "Sync all days": all days follow the shown day (synced on enable, then on every edit). */
   @state() protected _allDays = false;
   @state() protected _day: Weekday = todayKey();
   @state() protected _sel: string | null = null;
@@ -421,6 +421,18 @@ export class TimelineSchedulerCard extends LitElement {
   protected _setAllDays(on: boolean): void {
     this._allDays = on;
     if (this._schedule) writeAllDays(this._schedule.id, on);
+    // Turning it on syncs now; only an actual change becomes a draft to confirm.
+    if (on && this._perDay) {
+      const before = this._planSig();
+      this._mirrorDay();
+      if (this._planSig() !== before) this._scheduleSync();
+    }
+  }
+  /** Id-insensitive signature of the edit plan, to tell whether a sync changed anything. */
+  protected _planSig(): string {
+    if (!this._perDay) return '';
+    return JSON.stringify(WEEKDAYS.map((d) => this._perDay![d]
+      .map((e) => JSON.stringify([e.kind, e.atMin, e.entity, e.offsetMin, e.value])).sort()));
   }
 
   // ---- draft: confirm / discard -------------------------------------------
@@ -561,7 +573,7 @@ export class TimelineSchedulerCard extends LitElement {
             : this._saving ? html`<span class="sync">Saving…</span>`
             : this._dirty ? html`<span class="sync">Unsaved…</span>`
             : this._locked || this._hasDraft() ? nothing
-            : html`<span class="ok">Edits save as a draft — Confirm to apply</span>`}
+            : html`<span class="ok">Edits save as a draft</span>`}
         </div>
         ${this._draftBar()}
         <div class="days">
@@ -730,10 +742,10 @@ export class TimelineSchedulerCard extends LitElement {
         <option value="">Copy day to…</option>
         ${WEEKDAYS.filter((d) => d !== this._day).map((d) => html`<option value=${d}>${DAY_LABEL[d]}</option>`)}
       </select>`}
-      <label class="alldays" title="Every edit to this day is applied to all days">
+      <label class="alldays" title="Make every day match this one, and keep them in sync as you edit">
         <input type="checkbox" .checked=${this._allDays}
           @change=${(e: Event) => this._setAllDays((e.target as HTMLInputElement).checked)} />
-        Edit all days
+        Sync all days
       </label>
     </div>`;
   }
