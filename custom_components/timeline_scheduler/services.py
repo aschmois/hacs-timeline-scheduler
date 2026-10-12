@@ -40,6 +40,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         existing = data["store"].get(schedule.id)
         if existing is not None:
             schedule.managed = existing.managed
+            if "draft" not in call.data:
+                schedule.draft = existing.draft
         await data["store"].async_upsert(schedule)
         await data["manager"].async_setup_schedule(schedule)
 

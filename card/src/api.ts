@@ -1,4 +1,4 @@
-import type { HassLike, Schedule, SetVal } from './types';
+import type { HassLike, Schedule, SetVal, Transition } from './types';
 
 export const listSchedules = (hass: HassLike): Promise<Schedule[]> =>
   hass.connection.sendMessagePromise<{ schedules: Schedule[] }>({ type: 'timeline_scheduler/list' })
@@ -13,6 +13,20 @@ export const previewDay = (hass: HassLike, id: string, date: string): Promise<Pr
 
 export const saveSchedule = (hass: HassLike, schedule: Schedule): Promise<Schedule> =>
   hass.connection.sendMessagePromise<Schedule>({ type: 'timeline_scheduler/save', schedule });
+
+/** Store edits as a draft: persisted, but not applied until confirmDraft. */
+export const saveDraft = (
+  hass: HassLike, id: string, transitions: Transition[], onMode: string | null,
+): Promise<Schedule> =>
+  hass.connection.sendMessagePromise<Schedule>({
+    type: 'timeline_scheduler/save_draft', id_: id, transitions, on_mode: onMode,
+  });
+
+export const confirmDraft = (hass: HassLike, id: string): Promise<Schedule> =>
+  hass.connection.sendMessagePromise<Schedule>({ type: 'timeline_scheduler/confirm_draft', id_: id });
+
+export const discardDraft = (hass: HassLike, id: string): Promise<Schedule> =>
+  hass.connection.sendMessagePromise<Schedule>({ type: 'timeline_scheduler/discard_draft', id_: id });
 
 export const deleteSchedule = (hass: HassLike, id: string): Promise<{ id: string; removed: boolean }> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/delete', id_: id });

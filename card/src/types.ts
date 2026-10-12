@@ -13,6 +13,8 @@ export interface Schedule {
   // Climate: hvac mode used to turn on for a temperature-only setpoint.
   on_mode?: string | null;
   default?: { value: SetVal | null } | null; transitions: Transition[];
+  // Card edits saved but not yet applied (confirm_draft promotes them).
+  draft?: { transitions: Transition[]; on_mode?: string | null } | null;
 }
 export interface HassEntity { state: string; attributes?: Record<string, any>; }
 export interface HassDevice { id: string; identifiers: [string, string][]; }

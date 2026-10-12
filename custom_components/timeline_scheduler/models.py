@@ -64,6 +64,10 @@ class Schedule:
     # upsert_schedule service) must not be able to clear it. See websocket_api
     # and services, which preserve an existing schedule's flag on write.
     managed: bool = False
+    # Pending card edits, saved but NOT applied: {"transitions": [...], "on_mode": str|None}.
+    # The engine only ever reads `transitions`/`on_mode`; `confirm_draft` promotes
+    # the draft into them. None when the card's plan matches what is applied.
+    draft: dict | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Schedule":
@@ -71,7 +75,7 @@ class Schedule:
             id=d["id"], name=d.get("name", d["id"]), target=d["target"],
             apply=d["apply"], enabled=d.get("enabled", True),
             default=d.get("default"), managed=d.get("managed", False),
-            on_mode=d.get("on_mode"),
+            on_mode=d.get("on_mode"), draft=d.get("draft"),
             transitions=[Transition.from_dict(t) for t in d.get("transitions", [])],
         )
 
@@ -83,4 +87,6 @@ class Schedule:
             d["on_mode"] = self.on_mode
         if self.managed:
             d["managed"] = True
+        if self.draft is not None:
+            d["draft"] = self.draft
         return d

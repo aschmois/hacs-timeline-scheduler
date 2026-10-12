@@ -25,6 +25,7 @@ generic engine, so one pattern covers the bed today and thermostats/other device
 - Auto **re-plan** when the anchor entity changes; correct value applied on HA restart.
 - First-class entities: `sensor.timeline_<id>` (current value, next change).
 - WebSocket CRUD API + a bundled **timeline editor card** (Phase 2).
+- Card edits save as a **draft** that is only applied on **Confirm** (or dropped with Discard).
 
 ## Not in scope
 

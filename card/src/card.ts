@@ -2,7 +2,9 @@ import { LitElement, html, css, PropertyValues, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule, saveSchedule, listSchedules, clearOverride, fetchHistory } from './api';
+import {
+  getSchedule, listSchedules, clearOverride, fetchHistory, saveDraft, confirmDraft, discardDraft,
+} from './api';
 import {
   expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM,
   vTemp, vMode, vOn, vNumber, mkClimate, mkSwitch, mkNumber,
@@ -31,7 +33,13 @@ export class TimelineSchedulerCard extends LitElement {
   @property({ attribute: false }) public hass?: HassLike;
   @state() protected _config?: CardConfig;
   @state() protected _schedule?: Schedule;
+  // _perDay is the plan being edited (the draft when one exists); _applied is
+  // what the engine is running. Status/override always follow _applied.
   @state() protected _perDay?: Record<Weekday, DayEntry[]>;
+  @state() protected _applied?: Record<Weekday, DayEntry[]>;
+  @state() protected _onMode: string | null = null;
+  /** "Edit all days": every edit to the shown day is mirrored to the other six. */
+  @state() protected _allDays = false;
   @state() protected _day: Weekday = todayKey();
   @state() protected _sel: string | null = null;
   @state() protected _locked = true;
@@ -43,6 +51,7 @@ export class TimelineSchedulerCard extends LitElement {
   private _loadedFor?: string;
   private _saveTimer?: ReturnType<typeof setTimeout>;
   private _editSeq = 0;
+  private _syncP?: Promise<void>;
 
   public setConfig(config: CardConfig): void {
     if (!config) throw new Error('Invalid configuration');
@@ -103,13 +112,27 @@ export class TimelineSchedulerCard extends LitElement {
     if (!this.hass || !this._config?.schedule_id) return;
     try {
       const sch = await getSchedule(this.hass, this._config.schedule_id);
-      this._schedule = sch; this._perDay = expandByDay(sch); this._dirty = false; this._error = undefined;
+      this._setFromServer(sch); this._error = undefined;
+      this._allDays = readAllDays(sch.id);
     } catch (err) {
       this._error = `Couldn't load schedule "${this._config.schedule_id}": ${err instanceof Error ? err.message : String(err)}`;
     }
     this._maybeLoadHistory();
     this.requestUpdate();
   }
+
+  /** Adopt a schedule from the server: the applied plan, plus the draft (if any) as the edit plan. */
+  protected _setFromServer(sch: Schedule): void {
+    this._schedule = sch;
+    this._applied = expandByDay(sch);
+    const plan = sch.draft ?? { transitions: sch.transitions, on_mode: sch.on_mode };
+    this._perDay = expandByDay({ ...sch, transitions: plan.transitions });
+    this._onMode = plan.on_mode ?? null;
+    this._dirty = false;
+  }
+  protected _appliedDay(): DayEntry[] { return this._applied ? this._applied[this._day] : []; }
+  /** A draft exists on the server, or local edits are about to become one. */
+  protected _hasDraft(): boolean { return !!this._schedule?.draft || this._dirty || this._saving; }
 
   // ---- units / scale / modes ------------------------------------------------
   protected _unit(): TempUnit {
@@ -120,7 +143,9 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _scale(): Scale {
     const vals: number[] = [];
-    if (this._perDay) for (const d of WEEKDAYS) for (const e of this._perDay[d]) { const t = vTemp(e.value); if (t !== null) vals.push(t); }
+    for (const plan of [this._perDay, this._applied]) {
+      if (plan) for (const d of WEEKDAYS) for (const e of plan[d]) { const t = vTemp(e.value); if (t !== null) vals.push(t); }
+    }
     // Device min/max are in the HA system unit; only apply when the card unit matches.
     const bounds = this._unitMatchesSystem() ? this._targetBounds() : undefined;
     return makeScale(this._unit(), vals, bounds);
@@ -216,6 +241,14 @@ export class TimelineSchedulerCard extends LitElement {
         g('rect', { x: x0, y: plot.mode - 6, width: w, height: 12, rx: 3, class: 'seg-mode' });
       }
     }
+    // applied plan, dashed, behind a draft that differs from it
+    if (this._hasDraft()) {
+      for (const s of daySegments(this._appliedDay(), this.hass)) {
+        const t = vTemp(s.value); if (t === null) continue;
+        const y = yOfTemp(t, scale);
+        g('line', { class: 'ghost', x1: xOfMin(s.m0), y1: y, x2: xOfMin(s.m1), y2: y });
+      }
+    }
     // historical overlay: actual temperature + what it was actually set to (today only).
     // The set-to line breaks while the unit was off (no active target).
     if (this._hist && this._day === todayKey()) {
@@ -280,6 +313,12 @@ export class TimelineSchedulerCard extends LitElement {
       g('line', { class: 'segline', x1: x0, y1: y, x2: x1, y2: y, stroke: 'var(--primary-color)' });
       prevY = y;
     }
+    if (this._hasDraft()) {
+      for (const s of daySegments(this._appliedDay(), this.hass!)) {
+        const y = isOn(s.value) ? onY : offY;
+        g('line', { class: 'ghost', x1: xOfMin(s.m0), y1: y, x2: xOfMin(s.m1), y2: y });
+      }
+    }
     const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
     g('line', { class: 'nowline', x1: xOfMin(nm), y1: plot.T, x2: xOfMin(nm), y2: offY });
     for (const e of entries) {
@@ -321,19 +360,24 @@ export class TimelineSchedulerCard extends LitElement {
 
   // ---- mutations + auto-save ------------------------------------------------
   protected _scheduleSync(): void {
+    if (this._allDays) this._mirrorDay();
     this._dirty = true; this._editSeq++; this.requestUpdate();
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => void this._sync(), 700);
   }
-  protected async _sync(): Promise<void> {
+  protected _sync(): Promise<void> {
+    this._syncP = this._doSync();
+    return this._syncP;
+  }
+  /** Save the edit plan as a draft (persisted, not applied). */
+  protected async _doSync(): Promise<void> {
     if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = undefined; }
     if (!this.hass || !this._schedule || !this._perDay) return;
     const seq = this._editSeq;
-    const next: Schedule = { ...this._schedule, transitions: collapseToTransitions(this._perDay) };
     this._saving = true; this.requestUpdate();
     try {
-      await saveSchedule(this.hass, next);
-      this._schedule = next; this._error = undefined;
+      this._schedule = await saveDraft(this.hass, this._schedule.id, collapseToTransitions(this._perDay), this._onMode);
+      this._error = undefined;
       // Only mark clean if no newer edit arrived while this save was in flight.
       if (this._editSeq === seq) this._dirty = false;
     } catch (err) {
@@ -363,11 +407,57 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _copyDayToAll(): void {
     if (!this._perDay) return;
+    this._mirrorDay();
+    this._scheduleSync();
+  }
+  /** Make every other day a copy of the shown day. */
+  protected _mirrorDay(): void {
+    if (!this._perDay) return;
     for (const d of WEEKDAYS) {
       if (d === this._day) continue;
       this._perDay[d] = this._activeDay().map((e) => ({ ...e, id: 'c' + Math.random().toString(36).slice(2) }));
     }
-    this._scheduleSync();
+  }
+  protected _setAllDays(on: boolean): void {
+    this._allDays = on;
+    if (this._schedule) writeAllDays(this._schedule.id, on);
+  }
+
+  // ---- draft: confirm / discard -------------------------------------------
+  /** Wait for any queued or in-flight draft save. */
+  protected async _flush(): Promise<void> {
+    if (this._saveTimer || this._dirty) await this._sync();
+    else if (this._syncP) await this._syncP;
+  }
+  protected async _confirm(): Promise<void> {
+    if (!this.hass || !this._schedule) return;
+    try {
+      await this._flush();
+      if (this._dirty) throw new Error('edits are still saving, try again');
+      this._sel = null;
+      this._setFromServer(await confirmDraft(this.hass, this._schedule.id));
+      this._error = undefined;
+    } catch (err) { this._error = `Confirm failed: ${err instanceof Error ? err.message : String(err)}`; }
+    this.requestUpdate();
+  }
+  protected async _discard(): Promise<void> {
+    if (!this.hass || !this._schedule) return;
+    try {
+      await this._flush();
+      this._sel = null;
+      this._setFromServer(await discardDraft(this.hass, this._schedule.id));
+      this._error = undefined;
+    } catch (err) { this._error = `Discard failed: ${err instanceof Error ? err.message : String(err)}`; }
+    this.requestUpdate();
+  }
+  protected _draftBar() {
+    if (!this._hasDraft()) return nothing;
+    return html`<div class="draft">
+      <span class="dbadge">Draft</span>
+      <span class="dtext">Saved, not applied yet</span>
+      <button class="obtn dbtn" @click=${() => this._discard()}>Discard</button>
+      <button class="obtn dbtn primary" @click=${() => this._confirm()}>Confirm</button>
+    </div>`;
   }
   protected _toggleLock(): void { this._locked = !this._locked; if (this._locked) this._sel = null; }
 
@@ -388,8 +478,8 @@ export class TimelineSchedulerCard extends LitElement {
   }
 
   private _statusNow() {
-    if (!this.hass || !this._perDay) return { cur: '—', next: '' };
-    const pts = this._activeDay().map((e) => ({ m: resolveMin(e, this.hass!), v: e.value })).filter((p) => p.m !== null).sort((a, b) => (a.m! - b.m!));
+    if (!this.hass || !this._applied) return { cur: '—', next: '' };
+    const pts = this._appliedDay().map((e) => ({ m: resolveMin(e, this.hass!), v: e.value })).filter((p) => p.m !== null).sort((a, b) => (a.m! - b.m!));
     if (!pts.length) return { cur: '—', next: '' };
     const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
     let cur = pts[pts.length - 1]; for (const p of pts) if (p.m! <= nm) cur = p;
@@ -399,8 +489,8 @@ export class TimelineSchedulerCard extends LitElement {
 
   /** The value the schedule would be holding right now (today). */
   protected _plannedNow(): SetVal | undefined {
-    if (!this._perDay || !this.hass) return undefined;
-    const pts = this._activeDay().map((e) => ({ m: resolveMin(e, this.hass!), v: e.value })).filter((p) => p.m !== null).sort((a, b) => (a.m! - b.m!));
+    if (!this._applied || !this.hass) return undefined;
+    const pts = this._appliedDay().map((e) => ({ m: resolveMin(e, this.hass!), v: e.value })).filter((p) => p.m !== null).sort((a, b) => (a.m! - b.m!));
     if (!pts.length) return this._schedule?.default?.value ?? undefined;
     const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
     let cur = pts[pts.length - 1].v; for (const p of pts) if (p.m! <= nm) cur = p.v;
@@ -470,16 +560,20 @@ export class TimelineSchedulerCard extends LitElement {
           ${this._error ? html`<span class="err">${this._error}</span>`
             : this._saving ? html`<span class="sync">Saving…</span>`
             : this._dirty ? html`<span class="sync">Unsaved…</span>`
-            : this._locked ? nothing : html`<span class="ok">Changes save automatically</span>`}
+            : this._locked || this._hasDraft() ? nothing
+            : html`<span class="ok">Edits save as a draft — Confirm to apply</span>`}
         </div>
+        ${this._draftBar()}
         <div class="days">
           ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; this._maybeLoadHistory(); }}>${DAY_LABEL[d]}</button>`)}
         </div>
         <svg class="tl" viewBox="0 0 500 262" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
-        ${this._hist && this._day === todayKey() ? html`<div class="legend">
-          <span><i class="ln sched"></i>Scheduled</span>
-          <span><i class="ln act"></i>Actual</span>
-          <span><i class="ln tgt"></i>Was set to</span>
+        ${(this._hist && this._day === todayKey()) || this._hasDraft() ? html`<div class="legend">
+          <span><i class="ln sched"></i>${this._hasDraft() ? 'Draft' : 'Scheduled'}</span>
+          ${this._hasDraft() ? html`<span><i class="ln ghost"></i>Applied</span>` : nothing}
+          ${this._hist && this._day === todayKey() ? html`
+            <span><i class="ln act"></i>Actual</span>
+            <span><i class="ln tgt"></i>Was set to</span>` : nothing}
         </div>` : nothing}
         <div class="list">
           ${this._sortedDay().map((e) => this._row(e, scale))}
@@ -602,7 +696,7 @@ export class TimelineSchedulerCard extends LitElement {
   protected _onModeRow() {
     if (this._locked || this._applyKind() !== 'temp') return nothing;
     const opts = this._modeOptions().filter((m) => m !== 'off');
-    const cur = this._schedule?.on_mode ?? '';
+    const cur = this._onMode ?? '';
     return html`<div class="onmode">
       <span class="olabel">Turn on as</span>
       <select class="sel" @change=${(ev: Event) => this._setOnMode((ev.target as HTMLSelectElement).value)}>
@@ -614,7 +708,7 @@ export class TimelineSchedulerCard extends LitElement {
   }
   protected _setOnMode(val: string): void {
     if (!this._schedule) return;
-    this._schedule = { ...this._schedule, on_mode: val || null };
+    this._onMode = val || null;
     this._scheduleSync();
   }
 
@@ -630,11 +724,17 @@ export class TimelineSchedulerCard extends LitElement {
     if (this._locked) return nothing;
     return html`<div class="foot">
       <button class="act" @click=${() => this._addSetpoint()}>＋ Add setpoint</button>
+      ${this._allDays ? nothing : html`
       <button class="act" title="Copy this day's setpoints to every other day" @click=${() => this._copyDayToAll()}>Copy to all days</button>
       <select class="act" @change=${(e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v) { this._copyDayTo(v as Weekday); (e.target as HTMLSelectElement).value = ''; } }}>
         <option value="">Copy day to…</option>
         ${WEEKDAYS.filter((d) => d !== this._day).map((d) => html`<option value=${d}>${DAY_LABEL[d]}</option>`)}
-      </select>
+      </select>`}
+      <label class="alldays" title="Every edit to this day is applied to all days">
+        <input type="checkbox" .checked=${this._allDays}
+          @change=${(e: Event) => this._setAllDays((e.target as HTMLInputElement).checked)} />
+        Edit all days
+      </label>
     </div>`;
   }
 
@@ -673,6 +773,15 @@ export class TimelineSchedulerCard extends LitElement {
     .legend .ln.sched { border-top-color: var(--primary-color); border-top-width: 3px; }
     .legend .ln.act { border-top-color: var(--primary-text-color); }
     .legend .ln.tgt { border-top-style: dashed; }
+    .legend .ln.ghost { border-top-style: dashed; border-top-color: var(--primary-color); opacity: .7; }
+    .ghost { stroke: var(--primary-color); stroke-width: 2; stroke-dasharray: 5 4; opacity: .55; }
+    .draft { display: flex; gap: 8px; align-items: center; margin: 0 12px 10px; padding: 8px 10px; border-radius: 10px;
+      border: 1px solid var(--warning-color, #e0a020); background: color-mix(in srgb, var(--warning-color, #e0a020) 10%, transparent); }
+    .dbadge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--warning-color, #e0a020);
+      border: 1px solid var(--warning-color, #e0a020); padding: 0 6px; border-radius: 999px; }
+    .dtext { font-size: 12px; color: var(--secondary-text-color); margin-right: auto; }
+    .obtn.primary { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color); font-weight: 600; }
+    .alldays { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; color: var(--primary-text-color); cursor: pointer; }
     .vlabel { fill: var(--primary-text-color); font-size: 14px; font-weight: 700; paint-order: stroke;
       stroke: var(--card-background-color); stroke-width: 3.5px; stroke-linejoin: round; }
     .dot { cursor: grab; } .dot:active { cursor: grabbing; } .dot.ro { cursor: pointer; }
@@ -711,6 +820,13 @@ export class TimelineSchedulerCard extends LitElement {
     button.act { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 9px 13px; cursor: pointer;
       border: 1px solid var(--divider-color); background: var(--secondary-background-color); color: var(--primary-text-color); }
   `;
+}
+const allDaysKey = (sid: string) => `timeline-scheduler:all-days:${sid}`;
+function readAllDays(sid: string): boolean {
+  try { return localStorage.getItem(allDaysKey(sid)) === '1'; } catch { return false; }
+}
+function writeAllDays(sid: string, on: boolean): void {
+  try { localStorage.setItem(allDaysKey(sid), on ? '1' : '0'); } catch { /* storage unavailable */ }
 }
 function todayKey(): Weekday { return WEEKDAYS[(new Date().getDay() + 6) % 7]; }
 function shortEntity(id: string): string { const p = id.split('.'); return p[p.length - 1]; }

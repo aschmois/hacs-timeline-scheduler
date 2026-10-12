@@ -156,3 +156,98 @@ async def test_ws_save_malformed(hass, hass_ws_client):
                             "schedule": {"id": "broken"}})  # missing target/apply/transitions
     resp = await client.receive_json()
     assert not resp["success"] and resp["error"]["code"] == "invalid_format"
+
+
+DRAFT_TRANSITIONS = [{"id": "d1", "when": {"type": "time", "at": "21:00"},
+                      "value": {"mode": None, "temp": 70}}]
+
+
+async def test_ws_save_draft_stores_without_applying(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    await hass.async_block_till_done()
+    calls = async_mock_service(hass, "climate", "set_temperature")
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": DRAFT_TRANSITIONS, "on_mode": "heat"})
+    resp = await client.receive_json()
+    await hass.async_block_till_done()
+    assert resp["success"]
+    assert resp["result"]["draft"]["transitions"][0]["when"]["at"] == "21:00"
+    sch = hass.data[DOMAIN]["store"].get("bed")
+    assert sch.transitions[0].when.at == "20:00"  # applied plan untouched
+    assert sch.draft is not None
+    assert calls == []  # nothing applied
+
+    await client.send_json({"id": 2, "type": "timeline_scheduler/get", "id_": "bed"})
+    resp = await client.receive_json()
+    assert resp["result"]["draft"]["transitions"][0]["value"] == {"mode": None, "temp": 70}
+
+
+async def test_ws_save_draft_equal_to_applied_clears_it(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": DRAFT_TRANSITIONS, "on_mode": "heat"})
+    await client.receive_json()
+    same = [{**RAW["transitions"][0], "id": "other-id"}]  # ids don't matter
+    await client.send_json({"id": 2, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": same, "on_mode": "heat"})
+    resp = await client.receive_json()
+    assert resp["success"] and "draft" not in resp["result"]
+    assert hass.data[DOMAIN]["store"].get("bed").draft is None
+
+
+async def test_ws_confirm_draft_applies(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": DRAFT_TRANSITIONS, "on_mode": "auto"})
+    await client.receive_json()
+    await client.send_json({"id": 2, "type": "timeline_scheduler/confirm_draft", "id_": "bed"})
+    resp = await client.receive_json()
+    assert resp["success"] and "draft" not in resp["result"]
+    sch = hass.data[DOMAIN]["store"].get("bed")
+    assert sch.draft is None and sch.on_mode == "auto"
+    assert [t.when.at for t in sch.transitions] == ["21:00"]
+    assert hass.data[DOMAIN]["manager"].state["bed"]["current"] == {"mode": None, "temp": 70}
+
+
+async def test_ws_discard_draft(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": DRAFT_TRANSITIONS})
+    await client.receive_json()
+    await client.send_json({"id": 2, "type": "timeline_scheduler/discard_draft", "id_": "bed"})
+    resp = await client.receive_json()
+    assert resp["success"] and "draft" not in resp["result"]
+    sch = hass.data[DOMAIN]["store"].get("bed")
+    assert sch.draft is None and [t.when.at for t in sch.transitions] == ["20:00"]
+
+
+async def test_ws_draft_commands_missing_schedule(hass, hass_ws_client):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    for i, (typ, extra) in enumerate([("save_draft", {"transitions": []}), ("confirm_draft", {}),
+                                      ("discard_draft", {})], start=1):
+        await client.send_json({"id": i, "type": f"timeline_scheduler/{typ}", "id_": "nope", **extra})
+        resp = await client.receive_json()
+        assert not resp["success"] and resp["error"]["code"] == "not_found"
+
+
+async def test_full_save_and_upsert_preserve_draft(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "timeline_scheduler/save_draft", "id_": "bed",
+                            "transitions": DRAFT_TRANSITIONS})
+    await client.receive_json()
+    await client.send_json({"id": 2, "type": "timeline_scheduler/save", "schedule": RAW})
+    assert (await client.receive_json())["success"]
+    assert hass.data[DOMAIN]["store"].get("bed").draft is not None
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    assert hass.data[DOMAIN]["store"].get("bed").draft is not None

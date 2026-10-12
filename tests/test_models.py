@@ -56,3 +56,12 @@ def test_when_todict_fidelity_and_unknown_type_raises():
         "type": "anchor", "entity": "input_datetime.wakeup_time", "offset": "-00:30"}
     with pytest.raises(ValueError):
         When("solar", at="06:00").to_dict()
+
+
+def test_schedule_draft_round_trip():
+    d = {"id": "s", "name": "S", "target": {"entity_id": "climate.x"}, "apply": "climate_temperature",
+         "transitions": [], "draft": {"transitions": [], "on_mode": "heat"}}
+    sch = Schedule.from_dict(d)
+    assert sch.draft == {"transitions": [], "on_mode": "heat"}
+    assert sch.to_dict()["draft"] == {"transitions": [], "on_mode": "heat"}
+    assert "draft" not in Schedule.from_dict({**d, "draft": None}).to_dict()

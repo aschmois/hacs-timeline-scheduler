@@ -197,6 +197,7 @@ class ScheduleSubentryFlowHandler(ConfigSubentryFlow):
             )
 
         sid = self._reconf["sid"]
+        existing = store.get(sid)
         updated = Schedule(
             id=sid,
             name=base["name"],
@@ -206,6 +207,7 @@ class ScheduleSubentryFlowHandler(ConfigSubentryFlow):
             enabled=base["enabled"],
             on_mode=on_mode,
             managed=True,
+            draft=existing.draft if existing else None,
         )
         await store.async_upsert(updated)
         entry = self._get_entry()

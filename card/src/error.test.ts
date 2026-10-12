@@ -22,7 +22,7 @@ describe('error handling', () => {
     el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
     el.hass = { connection: { sendMessagePromise: async (m: any) => {
       if (m.type === 'timeline_scheduler/get') return SCH;
-      if (m.type === 'timeline_scheduler/save') throw new Error('unauthorized');
+      if (m.type === 'timeline_scheduler/save_draft') throw new Error('unauthorized');
       return { schedules: [SCH] };
     } }, states: {} };
     await flush(el);

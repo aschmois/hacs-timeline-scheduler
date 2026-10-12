@@ -6,7 +6,8 @@ const SCH: Schedule = { id: 'bed', name: 'Bed', enabled: true, target: { entity_
 async function mount() {
   const el = document.createElement('timeline-scheduler-card') as any;
   el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
-  el.hass = { connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? SCH : { schedules: [SCH] }) }, states: {} };
+  // list -> {schedules}; get/save_draft -> the schedule (as the server does)
+  el.hass = { connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/list' ? { schedules: [SCH] } : SCH) }, states: {} };
   for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
   return el;
 }

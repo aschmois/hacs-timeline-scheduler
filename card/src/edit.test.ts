@@ -9,7 +9,9 @@ const SCH: Schedule = {
 function mkHass(saved: any[]) {
   return { connection: { sendMessagePromise: vi.fn(async (m: any) => {
     if (m.type === 'timeline_scheduler/get') return SCH;
-    if (m.type === 'timeline_scheduler/save') { saved.push(m.schedule); return m.schedule; }
+    if (m.type === 'timeline_scheduler/save_draft') { saved.push(m); return { ...SCH, draft: { transitions: m.transitions, on_mode: m.on_mode } }; }
+    if (m.type === 'timeline_scheduler/confirm_draft') { saved.push(m); return { ...SCH, transitions: saved[0].transitions, draft: null }; }
+    if (m.type === 'timeline_scheduler/discard_draft') { saved.push(m); return { ...SCH, draft: null }; }
     return { schedules: [SCH] };
   }) }, states: {} } as any;
 }
@@ -45,5 +47,50 @@ describe('editing', () => {
     el.remove();                     // triggers disconnectedCallback -> flush
     await new Promise((r) => setTimeout(r, 0));
     expect(saved.length).toBe(1);    // save was not dropped
+  });
+
+  it('edits save as a draft; the applied plan (header/override) is unchanged until Confirm', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._toggleLock(); el._addSetpoint(); await el._sync(); await el.updateComplete;
+    expect(saved[0].type).toBe('timeline_scheduler/save_draft');
+    expect(el._schedule.draft).toBeTruthy();
+    expect(el.shadowRoot.querySelector('.draft')).toBeTruthy();
+    expect(el._appliedDay().length).toBe(1);          // still the original setpoint
+    expect(el._activeDay().length).toBe(2);           // the draft has the new one
+    await el._confirm(); await el.updateComplete;
+    expect(saved[saved.length - 1].type).toBe('timeline_scheduler/confirm_draft');
+    expect(el.shadowRoot.querySelector('.draft')).toBeNull();
+    expect(el._appliedDay().length).toBe(2);
+  });
+  it('discard restores the applied plan', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._toggleLock(); el._addSetpoint(); await el._sync();
+    await el._discard(); await el.updateComplete;
+    expect(saved[saved.length - 1].type).toBe('timeline_scheduler/discard_draft');
+    expect(el._activeDay().length).toBe(1);
+    expect(el.shadowRoot.querySelector('.draft')).toBeNull();
+  });
+  it('a schedule loaded with a draft shows it and edits it', async () => {
+    const el = document.createElement('timeline-scheduler-card') as any;
+    el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
+    const draft = { transitions: [{ id: 'd', when: { type: 'time', at: '06:00' }, value: { mode: null, temp: 70 } }], on_mode: 'auto' };
+    el.hass = { connection: { sendMessagePromise: async (m: any) => (m.type === 'timeline_scheduler/get' ? { ...SCH, draft } : { schedules: [SCH] }) }, states: {} };
+    for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
+    expect(el.shadowRoot.querySelector('.draft')).toBeTruthy();
+    expect(el._onMode).toBe('auto');
+    expect(el._activeDay()[0].value).toEqual({ mode: null, temp: 70 });
+    expect(el._appliedDay()[0].value).toEqual({ mode: null, temp: 80 });
+  });
+  it('"Edit all days" mirrors edits to every day and hides the copy controls', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._toggleLock(); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.foot select')).toBeTruthy();
+    el._setAllDays(true); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.foot select')).toBeNull();
+    expect([...el.shadowRoot.querySelectorAll('.foot button')].map((b: any) => b.textContent.trim())).toEqual(['＋ Add setpoint']);
+    el._addSetpoint(); await el.updateComplete;
+    for (const d of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) expect(el._perDay[d].length).toBe(2);
+    el._setAllDays(false); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.foot select')).toBeTruthy();
   });
 });
