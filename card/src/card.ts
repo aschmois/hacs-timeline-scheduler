@@ -2,7 +2,7 @@ import { LitElement, html, css, PropertyValues, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from './types';
 import { WEEKDAYS } from './types';
-import { getSchedule, saveSchedule, listSchedules, setOverride, clearOverride, fetchHistory } from './api';
+import { getSchedule, saveSchedule, listSchedules, clearOverride, fetchHistory } from './api';
 import {
   expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM,
   vTemp, vMode, vOn, vNumber, mkClimate, mkSwitch, mkNumber,
@@ -38,7 +38,6 @@ export class TimelineSchedulerCard extends LitElement {
   @state() protected _dirty = false;
   @state() protected _saving = false;
   @state() protected _error?: string;
-  @state() protected _ovInput = '';
   @state() protected _hist?: { actual: { m: number; t: number }[]; targetRuns: { m: number; t: number }[][] };
   private _histFor?: string;
   private _loadedFor?: string;
@@ -493,31 +492,12 @@ export class TimelineSchedulerCard extends LitElement {
   }
 
   // ---- manual override ------------------------------------------------------
+  // Overrides are made on the target entity itself (tap the title for its
+  // more-info); the card only offers to resume the schedule.
   protected _overrideRow() {
-    const kind = this._applyKind();
-    if (kind === 'onoff') {
-      return html`<div class="override">
-        <span class="olabel">Override now</span>
-        <button class="obtn" @click=${() => this._doOverride(mkSwitch('on'))}>On</button>
-        <button class="obtn" @click=${() => this._doOverride(mkSwitch('off'))}>Off</button>
-        <button class="obtn clr" @click=${() => this._clearOverride()}>Resume schedule</button>
-      </div>`;
-    }
-    const mk = (n: number) => (kind === 'number' ? mkNumber(n) : mkClimate(null, n));
     return html`<div class="override">
-      <span class="olabel">Override now</span>
-      <input class="num" type="number" .value=${this._ovInput} placeholder="value"
-        @input=${(e: Event) => { this._ovInput = (e.target as HTMLInputElement).value; }} />
-      <button class="obtn" ?disabled=${this._ovInput === ''}
-        @click=${() => this._doOverride(mk(Number(this._ovInput)))}>Hold until next change</button>
       <button class="obtn clr" @click=${() => this._clearOverride()}>Resume schedule</button>
     </div>`;
-  }
-  protected async _doOverride(value: SetVal): Promise<void> {
-    if (!this.hass || !this._config?.schedule_id) return;
-    try { await setOverride(this.hass, this._config.schedule_id, value); this._error = undefined; }
-    catch (err) { this._error = `Override failed: ${err instanceof Error ? err.message : String(err)}`; }
-    this.requestUpdate();
   }
   protected async _clearOverride(): Promise<void> {
     if (!this.hass || !this._config?.schedule_id) return;
@@ -727,7 +707,6 @@ export class TimelineSchedulerCard extends LitElement {
     .obtn { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
       border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
     .obtn.clr { margin-left: auto; }
-    .obtn[disabled] { opacity: .5; cursor: default; }
     .foot { display: flex; gap: 10px; padding: 10px 16px 16px; border-top: 1px solid var(--divider-color); }
     button.act { font: inherit; font-weight: 600; font-size: 13px; border-radius: 8px; padding: 9px 13px; cursor: pointer;
       border: 1px solid var(--divider-color); background: var(--secondary-background-color); color: var(--primary-text-color); }

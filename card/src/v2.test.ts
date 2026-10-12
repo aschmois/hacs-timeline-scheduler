@@ -213,7 +213,7 @@ describe('card v2', () => {
     expect(el.shadowRoot.querySelectorAll('.dot').length).toBe(2);
   });
 
-  it('override sends the temperature as a climate value object; resume clears it', async () => {
+  it('override row only offers Resume schedule, which clears the override', async () => {
     const sent: any[] = [];
     const el = document.createElement('timeline-scheduler-card') as any;
     el.setConfig({ schedule_id: 'bed' }); document.body.appendChild(el);
@@ -223,9 +223,13 @@ describe('card v2', () => {
       config: { unit_system: { temperature: '°F' } },
     };
     for (let i = 0; i < 3; i++) { await new Promise((r) => setTimeout(r, 0)); await el.updateComplete; }
-    await el._doOverride({ mode: null, temp: 66 });
-    expect(sent.some((m) => m.type === 'timeline_scheduler/override' && m.value && m.value.temp === 66 && m.id_ === 'bed')).toBe(true);
-    await el._clearOverride();
+    el._toggleLock(); await el.updateComplete;
+    const row = el.shadowRoot.querySelector('.override');
+    expect(row.querySelector('input')).toBeNull();
+    const buttons = [...row.querySelectorAll('button')].map((b: any) => b.textContent.trim());
+    expect(buttons).toEqual(['Resume schedule']);
+    row.querySelector('button').click();
+    await new Promise((r) => setTimeout(r, 0));
     expect(sent.some((m) => m.type === 'timeline_scheduler/clear_override' && m.id_ === 'bed')).toBe(true);
   });
 
