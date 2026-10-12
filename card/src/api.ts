@@ -28,6 +28,9 @@ export const confirmDraft = (hass: HassLike, id: string): Promise<Schedule> =>
 export const discardDraft = (hass: HassLike, id: string): Promise<Schedule> =>
   hass.connection.sendMessagePromise<Schedule>({ type: 'timeline_scheduler/discard_draft', id_: id });
 
+export const setEnabled = (hass: HassLike, id: string, enabled: boolean): Promise<Schedule> =>
+  hass.connection.sendMessagePromise<Schedule>({ type: 'timeline_scheduler/set_enabled', id_: id, enabled });
+
 export const deleteSchedule = (hass: HassLike, id: string): Promise<{ id: string; removed: boolean }> =>
   hass.connection.sendMessagePromise({ type: 'timeline_scheduler/delete', id_: id });
 

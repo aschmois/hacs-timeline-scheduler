@@ -211,6 +211,29 @@ async def ws_discard_draft(hass: HomeAssistant, connection, msg) -> None:
     connection.send_result(msg["id"], sch.to_dict())
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "timeline_scheduler/set_enabled",
+    vol.Required("id_"): str,
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_enabled(hass: HomeAssistant, connection, msg) -> None:
+    """Turn a schedule on/off (same effect as its enable switch entity)."""
+    data = hass.data[DOMAIN]
+    sch = data["store"].get(msg["id_"])
+    if sch is None:
+        connection.send_error(msg["id"], "not_found", f"No schedule '{msg['id_']}'")
+        return
+    if sch.enabled != msg["enabled"]:
+        sch = replace(sch, enabled=msg["enabled"])
+        await data["store"].async_upsert(sch)
+        # Re-arms (enable) or tears down (disable) the engine; either way it
+        # dispatches, so the switch/sensor entities update too.
+        await data["manager"].async_setup_schedule(sch)
+    connection.send_result(msg["id"], sch.to_dict())
+
+
 @callback
 def async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_list)
@@ -223,3 +246,4 @@ def async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_save_draft)
     websocket_api.async_register_command(hass, ws_confirm_draft)
     websocket_api.async_register_command(hass, ws_discard_draft)
+    websocket_api.async_register_command(hass, ws_set_enabled)

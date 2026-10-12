@@ -3,7 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { HassLike, Schedule, Weekday, SetVal, TempUnit, CardConfig } from './types';
 import { WEEKDAYS } from './types';
 import {
-  getSchedule, listSchedules, clearOverride, fetchHistory, saveDraft, confirmDraft, discardDraft,
+  getSchedule, listSchedules, clearOverride, fetchHistory, saveDraft, confirmDraft, discardDraft, setEnabled,
 } from './api';
 import {
   expandByDay, daySegments, resolveMin, fmtMin, fmtClock, parseHHMM,
@@ -114,6 +114,7 @@ export class TimelineSchedulerCard extends LitElement {
       const sch = await getSchedule(this.hass, this._config.schedule_id);
       this._setFromServer(sch); this._error = undefined;
       this._allDays = readAllDays(sch.id);
+      if (this._allDays) this._day = todayKey(); // no day picker while synced
     } catch (err) {
       this._error = `Couldn't load schedule "${this._config.schedule_id}": ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -426,7 +427,18 @@ export class TimelineSchedulerCard extends LitElement {
       const before = this._planSig();
       this._mirrorDay();
       if (this._planSig() !== before) this._scheduleSync();
+      // The day picker hides while synced; every day now matches, so show today.
+      if (this._day !== todayKey()) { this._day = todayKey(); this._sel = null; this._maybeLoadHistory(); }
     }
+  }
+  protected async _setEnabled(on: boolean): Promise<void> {
+    if (!this.hass || !this._schedule) return;
+    try {
+      const res = await setEnabled(this.hass, this._schedule.id, on);
+      this._schedule = { ...this._schedule, enabled: res.enabled };
+      this._error = undefined;
+    } catch (err) { this._error = `Couldn't ${on ? 'enable' : 'disable'}: ${err instanceof Error ? err.message : String(err)}`; }
+    this.requestUpdate();
   }
   /** Id-insensitive signature of the edit plan, to tell whether a sync changed anything. */
   protected _planSig(): string {
@@ -448,6 +460,7 @@ export class TimelineSchedulerCard extends LitElement {
       if (this._dirty) throw new Error('edits are still saving, try again');
       this._sel = null;
       this._setFromServer(await confirmDraft(this.hass, this._schedule.id));
+      this._locked = true;
       this._error = undefined;
     } catch (err) { this._error = `Confirm failed: ${err instanceof Error ? err.message : String(err)}`; }
     this.requestUpdate();
@@ -560,8 +573,10 @@ export class TimelineSchedulerCard extends LitElement {
             <h2>${this._config.name ?? s?.name ?? 'Schedule'}</h2>
           </div>
           <div class="now">
-            <div class="cur">${ov.active ? this._fmtVal(ov.actual!) : st.cur}</div>
-            ${ov.active
+            <div class="cur">${ov.active && s?.enabled !== false ? this._fmtVal(ov.actual!) : st.cur}</div>
+            ${s?.enabled === false
+              ? html`<div class="nxt"><span class="offbadge">Disabled</span></div>`
+              : ov.active
               ? html`<div class="nxt"><span class="ovbadge">Override</span><button class="reslink" title="Re-apply the schedule now" @click=${() => this._clearOverride()}>Resume</button></div>`
               : html`<div class="nxt">${st.next}</div>`}
           </div>
@@ -575,10 +590,15 @@ export class TimelineSchedulerCard extends LitElement {
             : this._locked || this._hasDraft() ? nothing
             : html`<span class="ok">Edits save as a draft</span>`}
         </div>
+        ${this._locked ? nothing : html`<div class="enrow">
+          <span class="olabel">Schedule enabled</span>
+          <ha-switch .checked=${s?.enabled !== false}
+            @change=${(e: Event) => this._setEnabled((e.target as HTMLInputElement).checked)}></ha-switch>
+        </div>`}
         ${this._draftBar()}
-        <div class="days">
+        ${this._allDays ? nothing : html`<div class="days">
           ${WEEKDAYS.map((d) => html`<button class="day" aria-pressed=${d === this._day} @click=${() => { this._day = d; this._sel = null; this._maybeLoadHistory(); }}>${DAY_LABEL[d]}</button>`)}
-        </div>
+        </div>`}
         <svg class="tl" viewBox="0 0 500 262" preserveAspectRatio="xMidYMid meet" aria-label="setpoint timeline"></svg>
         ${(this._hist && this._day === todayKey()) || this._hasDraft() ? html`<div class="legend">
           <span><i class="ln sched"></i>${this._hasDraft() ? 'Draft' : 'Scheduled'}</span>
@@ -792,6 +812,10 @@ export class TimelineSchedulerCard extends LitElement {
     .dbadge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--warning-color, #e0a020);
       border: 1px solid var(--warning-color, #e0a020); padding: 0 6px; border-radius: 999px; }
     .dtext { font-size: 12px; color: var(--secondary-text-color); margin-right: auto; }
+    .offbadge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--secondary-text-color); border: 1px solid var(--divider-color); padding: 0 6px; border-radius: 999px; }
+    .enrow { display: flex; align-items: center; justify-content: space-between; margin: 0 12px 10px; padding: 6px 10px;
+      border: 1px solid var(--divider-color); border-radius: 10px; }
     .obtn.primary { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color); font-weight: 600; }
     .alldays { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; color: var(--primary-text-color); cursor: pointer; }
     .vlabel { fill: var(--primary-text-color); font-size: 14px; font-weight: 700; paint-order: stroke;

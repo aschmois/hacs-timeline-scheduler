@@ -12,6 +12,7 @@ function mkHass(saved: any[]) {
     if (m.type === 'timeline_scheduler/save_draft') { saved.push(m); return { ...SCH, draft: { transitions: m.transitions, on_mode: m.on_mode } }; }
     if (m.type === 'timeline_scheduler/confirm_draft') { saved.push(m); return { ...SCH, transitions: saved[0].transitions, draft: null }; }
     if (m.type === 'timeline_scheduler/discard_draft') { saved.push(m); return { ...SCH, draft: null }; }
+    if (m.type === 'timeline_scheduler/set_enabled') { saved.push(m); return { ...SCH, enabled: m.enabled }; }
     return { schedules: [SCH] };
   }) }, states: {} } as any;
 }
@@ -23,7 +24,8 @@ async function mount(saved: any[]) {
 }
 
 describe('editing', () => {
-  beforeEach(() => (document.body.innerHTML = ''));
+  // 'Sync all days' persists in localStorage; start each test clean.
+  beforeEach(() => { document.body.innerHTML = ''; localStorage.clear(); });
   it('add setpoint marks dirty and there is no manual Save button (auto-save)', async () => {
     const saved: any[] = []; const el = await mount(saved);
     el._addSetpoint(); await el.updateComplete;
@@ -61,6 +63,7 @@ describe('editing', () => {
     expect(saved[saved.length - 1].type).toBe('timeline_scheduler/confirm_draft');
     expect(el.shadowRoot.querySelector('.draft')).toBeNull();
     expect(el._appliedDay().length).toBe(2);
+    expect(el._locked).toBe(true);                    // confirming locks the card
   });
   it('discard restores the applied plan', async () => {
     const saved: any[] = []; const el = await mount(saved);
@@ -105,5 +108,27 @@ describe('editing', () => {
     expect(el._dirty).toBe(false);
     expect(el.shadowRoot.querySelector('.draft')).toBeNull();
     expect(el.shadowRoot.querySelector('.status').textContent).not.toContain('Confirm');
+  });
+
+  it('hides the weekday picker while "Sync all days" is on and shows today', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    el._toggleLock(); el._day = el._day === 'mon' ? 'tue' : 'mon'; await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.days')).toBeTruthy();
+    el._setAllDays(true); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.days')).toBeNull();
+    const today = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
+    expect(el._day).toBe(today);
+    el._setAllDays(false); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.days')).toBeTruthy();
+  });
+  it('enable toggle shows only when unlocked and calls set_enabled', async () => {
+    const saved: any[] = []; const el = await mount(saved);
+    expect(el.shadowRoot.querySelector('.enrow')).toBeNull();      // locked
+    el._toggleLock(); await el.updateComplete;
+    expect(el.shadowRoot.querySelector('.enrow ha-switch')).toBeTruthy();
+    await el._setEnabled(false); await el.updateComplete;
+    expect(saved[saved.length - 1]).toMatchObject({ type: 'timeline_scheduler/set_enabled', id_: 'bed', enabled: false });
+    expect(el._schedule.enabled).toBe(false);
+    expect(el.shadowRoot.querySelector('.offbadge')).toBeTruthy();
   });
 });

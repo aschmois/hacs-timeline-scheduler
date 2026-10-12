@@ -251,3 +251,23 @@ async def test_full_save_and_upsert_preserve_draft(hass, hass_ws_client):
     assert hass.data[DOMAIN]["store"].get("bed").draft is not None
     await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
     assert hass.data[DOMAIN]["store"].get("bed").draft is not None
+
+
+async def test_ws_set_enabled(hass, hass_ws_client):
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "upsert_schedule", RAW, blocking=True)
+    client = await hass_ws_client(hass)
+    manager = hass.data[DOMAIN]["manager"]
+    assert "bed" in manager.state
+    await client.send_json({"id": 1, "type": "timeline_scheduler/set_enabled", "id_": "bed", "enabled": False})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["enabled"] is False
+    assert hass.data[DOMAIN]["store"].get("bed").enabled is False
+    assert "bed" not in manager.state  # engine torn down
+    await client.send_json({"id": 2, "type": "timeline_scheduler/set_enabled", "id_": "bed", "enabled": True})
+    resp = await client.receive_json()
+    assert resp["success"] and resp["result"]["enabled"] is True
+    assert "bed" in manager.state  # re-armed
+    await client.send_json({"id": 3, "type": "timeline_scheduler/set_enabled", "id_": "nope", "enabled": True})
+    resp = await client.receive_json()
+    assert not resp["success"] and resp["error"]["code"] == "not_found"
