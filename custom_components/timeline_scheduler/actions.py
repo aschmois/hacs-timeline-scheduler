@@ -1,7 +1,7 @@
 """Translate a scheduled value (a per-apply JSON object) into HA service calls.
 
 Every transition value is a JSON object keyed to the schedule's apply type:
-  switch_onoff        -> {"state": "on" | "off"}
+  switch_onoff        -> {"state": "on" | "off"}   (a switch or a light target)
   number_set          -> {"value": <number>}
   climate_temperature -> {"mode": <str | null>, "temp": <number | null>}
 """
@@ -11,6 +11,9 @@ from typing import Any
 
 # (domain, service, service_data)
 ServiceCall = tuple[str, str, dict]
+
+# Domains a switch_onoff schedule can target.
+ONOFF_DOMAINS = ("switch", "light")
 
 
 def _num(value: Any) -> float | None:
@@ -42,8 +45,13 @@ def build_service_calls(
     entity_id = target["entity_id"]
 
     if apply_key == "switch_onoff":
+        # A switch or a light (e.g. a light group): each gets its own domain's service,
+        # since switch.turn_on/off ignores a light entity.
+        domain = str(entity_id).split(".", 1)[0]
+        if domain not in ONOFF_DOMAINS:
+            raise ValueError(f"switch_onoff target must be a switch or light, got {entity_id!r}")
         on = str(value.get("state", "")).strip().lower() == "on"
-        return [("switch", "turn_on" if on else "turn_off", {"entity_id": entity_id})]
+        return [(domain, "turn_on" if on else "turn_off", {"entity_id": entity_id})]
 
     if apply_key == "number_set":
         num = _num(value.get("value"))

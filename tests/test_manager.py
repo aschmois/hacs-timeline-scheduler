@@ -152,3 +152,24 @@ async def test_default_applied_when_no_active_transition(hass):
     assert len(calls) == 1
     assert calls[0].data["temperature"] == 70.0
     await mgr.async_teardown("bed")
+
+
+async def test_light_target_gets_light_services(hass):
+    switch_calls = async_mock_service(hass, "switch", "turn_off")
+    light_calls = async_mock_service(hass, "light", "turn_off")
+    await hass.config.async_set_time_zone("America/New_York")
+    hass.states.async_set("light.shed_spot_lights", "on")
+    store = ScheduleStore(hass)
+    await store.async_load()
+    await store.async_upsert(Schedule.from_dict({
+        "id": "outdoor", "name": "Outdoor", "target": {"entity_id": "light.shed_spot_lights"},
+        "apply": "switch_onoff", "transitions": [
+            {"id": "a", "when": {"type": "time", "at": "18:00"}, "value": {"state": "on"}},
+            {"id": "b", "when": {"type": "time", "at": "23:00"}, "value": {"state": "off"}}]}))
+    mgr = TimelineManager(hass, store)
+    with freeze_time(datetime(2026, 1, 5, 23, 30, tzinfo=TZ)):
+        await mgr.async_refresh("outdoor")
+        await hass.async_block_till_done()
+    assert [c.data["entity_id"] for c in light_calls] == ["light.shed_spot_lights"]
+    assert switch_calls == []
+    await mgr.async_teardown("outdoor")

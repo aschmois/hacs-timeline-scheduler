@@ -17,6 +17,22 @@ def test_switch_onoff():
     ]
 
 
+def test_switch_onoff_light_target_uses_light_services():
+    # The config flow says Switch on/off takes "a switch or light"; a light (or a light
+    # group) must get light.turn_on/off, which switch.turn_on/off silently ignores.
+    assert build_service_calls("switch_onoff", {"state": "on"}, {"entity_id": "light.shed"}) == [
+        ("light", "turn_on", {"entity_id": "light.shed"})
+    ]
+    assert build_service_calls("switch_onoff", {"state": "off"}, {"entity_id": "light.shed"}) == [
+        ("light", "turn_off", {"entity_id": "light.shed"})
+    ]
+
+
+def test_switch_onoff_rejects_other_domains():
+    with pytest.raises(ValueError):
+        build_service_calls("switch_onoff", {"state": "on"}, {"entity_id": "cover.garage"})
+
+
 def test_number_set():
     assert build_service_calls("number_set", {"value": 5}, {"entity_id": "number.x"}) == [
         ("number", "set_value", {"entity_id": "number.x", "value": 5.0})
